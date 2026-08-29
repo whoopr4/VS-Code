@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Combat Sandbox — v2</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #7fb8d9; font-family: 'Courier New', monospace; touch-action: none; overscroll-behavior: none; }
+  canvas { display: block; }
+
+  #hud {
+    position: fixed; inset: 0; pointer-events: none;
+    color: #ffffff; text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  }
+
+  #topbar {
+    position: absolute; top: 18px; left: 18px; right: 18px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+  }
+
+  #controls {
+    font-size: 12px; line-height: 1.7; letter-spacing: 0.5px;
+    background: rgba(10,10,13,0.55); border: 1px solid rgba(255,255,255,0.15);
+    padding: 12px 16px; border-radius: 3px; max-width: 230px;
+  }
+  #controls b { color: #ffb347; }
+
+  .barwrap { width: 180px; }
+  .barlabel { font-size: 11px; letter-spacing: 1.5px; margin-bottom: 4px; opacity: 0.85; text-transform: uppercase; }
+  .bar { height: 10px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); position: relative; }
+  .barfill { height: 100%; transition: width 0.15s ease-out; }
+  #dashfill { background: linear-gradient(90deg, #4a6fa5, #6f9cd6); }
+
+  #enemyPanel {
+    position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+    text-align: center; opacity: 0; transition: opacity 0.3s;
+  }
+  #enemyPanel.visible { opacity: 1; }
+  #enemyName { font-size: 13px; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 5px; color: #ffb347; }
+  #enemyHealthBar { width: 320px; height: 8px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.35); }
+  #enemyHealthFill { height: 100%; background: linear-gradient(90deg, #a13030, #d9502e); transition: width 0.2s ease-out; }
+
+  #centerMsg {
+    position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 28px; letter-spacing: 6px; text-transform: uppercase;
+    color: #ffb347; opacity: 0; transition: opacity 0.4s; text-align: center;
+  }
+  #centerMsg.show { opacity: 1; }
+
+  #crosshair {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.6);
+  }
+
+  #lockIndicator {
+    position: absolute; width: 46px; height: 46px; border: 2px solid #ffb347;
+    border-radius: 50%; transform: translate(-50%, -50%);
+    box-shadow: 0 0 12px rgba(255,179,71,0.6); display: none;
+  }
+
+  #clickToStart {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.45); color: #fff; font-size: 20px; letter-spacing: 3px;
+    text-transform: uppercase; pointer-events: all; cursor: pointer;
+  }
+  #comboCounter {
+    position: absolute; bottom: 60px; left: 50%; transform: translate(-50%, 0);
+    font-size: 15px; letter-spacing: 4px; color: #ffb347; opacity: 0; transition: opacity 0.15s;
+  }
+  #comboCounter.show { opacity: 1; }
+
+  #pauseOverlay {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    flex-direction: column; background: rgba(0,0,0,0.55); color: #fff;
+    font-size: 26px; letter-spacing: 5px; text-transform: uppercase; pointer-events: none;
+  }
+  #pauseOverlay.show { display: flex; }
+  #pauseOverlay span { font-size: 13px; letter-spacing: 2px; opacity: 0.75; margin-top: 10px; text-transform: none; }
+
+  /* ---- Touch controls (mobile only) ---- */
+  #touchUI { display: none; }
+  body.touch-controls #touchUI { display: block; }
+  body.touch-controls #controls { display: none; }
+
+  .joystick-zone {
+    position: fixed; bottom: 26px; width: 118px; height: 118px; border-radius: 50%;
+    background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.28);
+    touch-action: none; pointer-events: all;
+  }
+  #moveBase { left: 22px; }
+  #lookBase { right: 22px; }
+  .joystick-knob {
+    position: absolute; top: 50%; left: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px;
+    border-radius: 50%; background: rgba(255,255,255,0.35); pointer-events: none;
+  }
+
+  .action-btn {
+    position: fixed; width: 56px; height: 56px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: bold; font-size: 18px; color: #fff;
+    border: 2px solid rgba(255,255,255,0.5); touch-action: none; pointer-events: all;
+    user-select: none; -webkit-user-select: none;
+  }
+  #btnA { right: 90px; bottom: 24px; background: rgba(58,158,80,0.55); }   /* green */
+  #btnB { right: 20px; bottom: 78px; background: rgba(190,50,50,0.55); }  /* red */
+  #btnX { right: 160px; bottom: 78px; background: rgba(50,90,190,0.55); } /* blue */
+  #btnY { right: 90px; bottom: 132px; background: rgba(200,170,30,0.6); } /* yellow */
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div id="topbar">
+    <div id="controls">
+      <b>DRAG MOUSE</b> look &nbsp; <b>WASD</b> move<br>
+      <b>SHIFT</b> dash &nbsp; <b>SPACE</b> jump<br>
+      <b>CLICK</b> or <b>E</b> light attack (chain x5)<br>
+      <b>RIGHT-CLICK</b> or <b>F</b> heavy attack<br>
+      <b>HOLD C</b> block &nbsp; <b>Q</b> lock-on
+    </div>
+    <div>
+      <div class="barwrap">
+        <div class="barlabel">Health</div>
+        <div class="bar"><div class="barfill" id="playerHealthFill" style="width:100%; background: linear-gradient(90deg, #3c8f6e, #57c98f);"></div></div>
+      </div>
+      <div class="barwrap" style="margin-top:8px;">
+        <div class="barlabel">Dash</div>
+        <div class="bar"><div class="barfill" id="dashfill" style="width:100%"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="enemyPanel">
+    <div id="enemyName">Training Dummy</div>
+    <div id="enemyHealthBar"><div id="enemyHealthFill" style="width:100%"></div></div>
+  </div>
+
+  <div id="comboCounter"></div>
+  <div id="centerMsg"></div>
+  <div id="crosshair"></div>
+  <div id="lockIndicator"></div>
+  <div id="pauseOverlay">Paused<span>Press ESC to resume</span></div>
+
+  <div id="touchUI">
+    <div class="joystick-zone" id="moveBase"><div class="joystick-knob" id="moveKnob"></div></div>
+    <div class="joystick-zone" id="lookBase"><div class="joystick-knob" id="lookKnob"></div></div>
+    <div class="action-btn" id="btnA">A</div>
+    <div class="action-btn" id="btnB">B</div>
+    <div class="action-btn" id="btnX">X</div>
+    <div class="action-btn" id="btnY">Y</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ---------- SETUP ----------
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8fc8e8);
+scene.fog = new THREE.Fog(0x8fc8e8, 22, 60);
+
+const camera = new THREE.PerspectiveCamera(62, window.innerWidth/window.innerHeight, 0.1, 500);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Toon gradient map for cartoon shading
+function makeToonGradient() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 4; canvas.height = 1;
+  const ctx = canvas.getContext('2d');
+  const shades = [70, 140, 200, 255];
+  shades.forEach((v, i) => { ctx.fillStyle = `rgb(${v},${v},${v})`; ctx.fillRect(i, 0, 1, 1); });
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.NearestFilter; tex.magFilter = THREE.NearestFilter;
+  return tex;
+}
+const toonGradient = makeToonGradient();
+function toonMat(color) {
+  return new THREE.MeshToonMaterial({ color, gradientMap: toonGradient });
+}
+
+// Lighting
+const hemi = new THREE.HemisphereLight(0xbde3ff, 0x4a5a30, 0.95);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff2d8, 1.05);
+sun.position.set(18, 28, 12);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -30; sun.shadow.camera.right = 30;
+sun.shadow.camera.top = 30; sun.shadow.camera.bottom = -30;
+scene.add(sun);
+
+// Ground (grass clearing + surrounding forest floor, same material)
+const groundGeo = new THREE.CircleGeometry(120, 64);
+const groundMat = toonMat(0x6fae4a);
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI/2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// ---------- FOREST ----------
+const CLEARING_RADIUS = 16;
+function makePineTree(scale) {
+  const grp = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18*scale, 0.24*scale, 2.2*scale, 7), toonMat(0x6b4a2f));
+  trunk.position.y = 1.1*scale;
+  trunk.castShadow = true;
+  grp.add(trunk);
+  const leafColors = [0x3f7d3a, 0x4a8f42, 0x397339];
+  for (let i = 0; i < 3; i++) {
+    const cone = new THREE.Mesh(new THREE.ConeGeometry((1.5 - i*0.32)*scale, 1.7*scale, 8), toonMat(leafColors[i]));
+    cone.position.y = (2.0 + i*1.15)*scale;
+    cone.castShadow = true;
+    grp.add(cone);
+  }
+  return grp;
+}
+function seededRand(seed) {
+  const x = Math.sin(seed * 999.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+for (let i = 0; i < 130; i++) {
+  const angle = seededRand(i * 2.1) * Math.PI * 2;
+  const radius = CLEARING_RADIUS + 2 + seededRand(i * 3.7) * 45;
+  const x = Math.cos(angle) * radius, z = Math.sin(angle) * radius;
+  const tree = makePineTree(0.8 + seededRand(i * 5.3) * 0.9);
+  tree.position.set(x, 0, z);
+  tree.rotation.y = seededRand(i * 7.1) * Math.PI * 2;
+  scene.add(tree);
+}
+// a few scattered decorative bushes right at the clearing edge
+for (let i = 0; i < 18; i++) {
+  const angle = seededRand(i * 11.3) * Math.PI * 2;
+  const radius = CLEARING_RADIUS - 0.5 + seededRand(i * 13.9) * 1.5;
+  const bush = new THREE.Mesh(new THREE.SphereGeometry(0.5 + seededRand(i*17)*0.4, 8, 8), toonMat(0x4a8f42));
+  bush.position.set(Math.cos(angle)*radius, 0.4, Math.sin(angle)*radius);
+  bush.castShadow = true;
+  scene.add(bush);
+}
+
+// ---------- HUMANOID BUILDER ----------
+function buildHumanoid(palette) {
+  const root = new THREE.Group();
+
+  const hip = new THREE.Group();
+  hip.position.y = 0.95;
+  root.add(hip);
+
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.72, 0.32), toonMat(palette.body));
+  torso.position.y = 0.42;
+  torso.castShadow = true;
+  hip.add(torso);
+
+  const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.07, 6, 10), toonMat(palette.accent));
+  scarf.position.set(0, 0.72, 0.02);
+  scarf.rotation.x = Math.PI/2.3;
+  hip.add(scarf);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 10), toonMat(palette.head));
+  head.position.y = 1.1;
+  head.castShadow = true;
+  hip.add(head);
+  const headband = new THREE.Mesh(new THREE.TorusGeometry(0.285, 0.035, 6, 12), toonMat(palette.accent));
+  headband.position.y = 1.15;
+  headband.rotation.x = Math.PI/2;
+  hip.add(headband);
+
+  function buildArm(side) {
+    const shoulder = new THREE.Group();
+    shoulder.position.set(0.36*side, 0.72, 0);
+    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.085, 0.42, 8), toonMat(palette.limb));
+    upper.position.y = -0.21;
+    upper.castShadow = true;
+    shoulder.add(upper);
+    const elbow = new THREE.Group();
+    elbow.position.y = -0.42;
+    shoulder.add(elbow);
+    const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.4, 8), toonMat(palette.limbDark));
+    fore.position.y = -0.2;
+    fore.castShadow = true;
+    elbow.add(fore);
+    hip.add(shoulder);
+    return { shoulder, elbow };
+  }
+  const leftArm = buildArm(-1);
+  const rightArm = buildArm(1);
+
+  function buildLeg(side) {
+    const hipJoint = new THREE.Group();
+    hipJoint.position.set(0.16*side, 0.06, 0);
+    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.1, 0.46, 8), toonMat(palette.limbDark));
+    upper.position.y = -0.23;
+    upper.castShadow = true;
+    hipJoint.add(upper);
+    const knee = new THREE.Group();
+    knee.position.y = -0.46;
+    hipJoint.add(knee);
+    const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.08, 0.44, 8), toonMat(palette.limbDark));
+    lower.position.y = -0.22;
+    lower.castShadow = true;
+    knee.add(lower);
+    hip.add(hipJoint);
+    return { hipJoint, knee };
+  }
+  const leftLeg = buildLeg(-1);
+  const rightLeg = buildLeg(1);
+
+  // weapon in right hand
+  const weapon = new THREE.Group();
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.85, 0.14), new THREE.MeshStandardMaterial({ color: 0xdadde2, metalness: 0.6, roughness: 0.3 }));
+  blade.position.y = -0.62;
+  blade.castShadow = true;
+  weapon.add(blade);
+  const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.16, 6), toonMat(0x2a1f1a));
+  hilt.position.y = -0.14;
+  weapon.add(hilt);
+  rightArm.elbow.add(weapon);
+  weapon.position.y = -0.4;
+  weapon.rotation.x = -0.15;
+
+  return { root, hip, head, leftArm, rightArm, leftLeg, rightLeg, weapon };
+}
+
+const playerPalette = { body: 0x232838, head: 0xd9b48f, limb: 0x2c3244, limbDark: 0x1c202c, accent: 0xe8e2d5 };
+const enemyPalette  = { body: 0x5a2b2b, head: 0xc99a72, limb: 0x6e3535, limbDark: 0x431f1f, accent: 0xd9772e };
+
+const playerRig = buildHumanoid(playerPalette);
+const player = playerRig.root;
+player.position.set(0, 0, 6);
+scene.add(player);
+
+function makeEnemy(x, z) {
+  const rig = buildHumanoid(enemyPalette);
+  rig.root.position.set(x, 0, z);
+  scene.add(rig.root);
+  rig.userData = { hp: 100, maxHp: 100, alive: true, hitFlashT: 0, knockback: new THREE.Vector3() };
+  return rig;
+}
+let enemyRig = makeEnemy(0, -6);
+let enemyState = 'chase'; // chase | sidestep | windup | strike | recover
+let enemyStateT = 0;
+let enemyActionTimer = 2 + Math.random() * 2;
+let enemyVelY = 0, enemyGrounded = true;
+let enemyLungeVec = new THREE.Vector3();
+let enemyHitDone = false;
+function enemyMats() {
+  return [enemyRig.hip.children].flat(); // not used directly; flash handled via traverse below
+}
+
+// ---------- TOUCH CONTROLS (mobile) ----------
+const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+if (isTouchDevice) document.body.classList.add('touch-controls');
+
+function setupJoystick(baseId, knobId, maxRadius) {
+  const base = document.getElementById(baseId);
+  const knob = document.getElementById(knobId);
+  const vec = { x: 0, y: 0 };
+  let touchId = null;
+
+  function update(t) {
+    const r = base.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    let dx = t.clientX - cx, dy = t.clientY - cy;
+    const dist = Math.min(maxRadius, Math.hypot(dx, dy));
+    const angle = Math.atan2(dy, dx);
+    dx = Math.cos(angle) * dist; dy = Math.sin(angle) * dist;
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    vec.x = dx / maxRadius; vec.y = dy / maxRadius;
+  }
+  function reset() {
+    touchId = null; vec.x = 0; vec.y = 0;
+    knob.style.transform = 'translate(0px, 0px)';
+  }
+  base.addEventListener('touchstart', e => {
+    const t = e.changedTouches[0];
+    touchId = t.identifier;
+    update(t);
+    e.preventDefault();
+  }, { passive: false });
+  window.addEventListener('touchmove', e => {
+    for (const t of e.changedTouches) if (t.identifier === touchId) { update(t); e.preventDefault(); }
+  }, { passive: false });
+  window.addEventListener('touchend', e => {
+    for (const t of e.changedTouches) if (t.identifier === touchId) reset();
+  });
+  window.addEventListener('touchcancel', e => {
+    for (const t of e.changedTouches) if (t.identifier === touchId) reset();
+  });
+  return vec;
+}
+const moveStick = setupJoystick('moveBase', 'moveKnob', 44);
+const lookStick = setupJoystick('lookBase', 'lookKnob', 44);
+
+let dashRequested = false;
+function bindTouchButton(id, fn) {
+  document.getElementById(id).addEventListener('touchstart', e => { e.preventDefault(); fn(); }, { passive: false });
+}
+bindTouchButton('btnA', () => tryJump());
+bindTouchButton('btnB', () => { dashRequested = true; });
+bindTouchButton('btnX', () => tryLightAttack());
+bindTouchButton('btnY', () => tryHeavyAttack());
+
+// ---------- INPUT ----------
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.code] = true; });
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+let lockedOn = false;
+let paused = false;
+window.addEventListener('keydown', e => {
+  if (e.code === 'KeyQ') lockedOn = !lockedOn;
+  if (e.code === 'Escape') {
+    paused = !paused;
+    document.getElementById('pauseOverlay').classList.toggle('show', paused);
+  }
+});
+
+// Drag-to-look mouse control (no Pointer Lock needed — works with trackpads & embedded views)
+let yaw = Math.PI; // camera yaw around player, radians
+let pitch = 0.45;  // camera pitch, radians (0 = horizontal)
+const canvas = renderer.domElement;
+
+let dragActive = false, dragMoved = false, lastMouseX = 0, lastMouseY = 0, downButton = -1;
+canvas.addEventListener('mousedown', e => {
+  dragActive = true;
+  dragMoved = false;
+  downButton = e.button;
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+});
+window.addEventListener('mousemove', e => {
+  if (!dragActive) return;
+  const dx = e.clientX - lastMouseX;
+  const dy = e.clientY - lastMouseY;
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+  if (Math.abs(dx) + Math.abs(dy) > 3) dragMoved = true;
+  yaw -= dx * 0.0032;
+  pitch -= dy * 0.0026;
+  pitch = Math.max(0.12, Math.min(1.15, pitch));
+});
+window.addEventListener('mouseup', () => {
+  if (!dragActive) return;
+  dragActive = false;
+  if (!dragMoved) {
+    if (downButton === 0) tryLightAttack();
+    if (downButton === 2) tryHeavyAttack();
+  }
+  downButton = -1;
+});
+window.addEventListener('contextmenu', e => e.preventDefault());
+
+// Keyboard attack/jump fallback, independent of mouse click behavior
+window.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (e.code === 'KeyE') tryLightAttack();
+  if (e.code === 'KeyF') tryHeavyAttack();
+  if (e.code === 'Space') tryJump();
+});
+
+// ---------- STATE ----------
+let velocity = new THREE.Vector3();
+let facingAngle = Math.PI;      // player's current facing (world angle)
+let dashCharge = 100, maxDash = 100;
+let isDashing = false, dashT = 0;
+const CAM_DIST = 6.2, CAM_HEIGHT_BASE = 1.4;
+const ARENA_RADIUS = CLEARING_RADIUS - 1.5;
+
+// Player health, gravity/jump, blocking
+let playerHP = 100, maxPlayerHP = 100;
+let velocityY = 0, grounded = true;
+const GRAVITY = -26, JUMP_IMPULSE = 9.5;
+let heavyDiveActive = false;
+let blocking = false;
+
+// Combat state
+const LIGHT_HIT_DURATION = 0.19;
+const LIGHT_COMBO_WINDOW = 1.0;
+const LIGHT_RECOVERY = 0.5;
+const HEAVY_WINDUP = 0.32;
+const HEAVY_STRIKE = 0.22;
+const HEAVY_RECOVERY = 0.55;
+
+let action = 'idle'; // idle | light | heavy | recovery
+let actionT = 0, actionDur = 0;
+let comboCount = 0;
+let comboWindowOpen = false, comboWindowT = 0;
+let currentHitDone = false;
+let lungeVec = new THREE.Vector3();
+let startedAirborne = false;
+
+function tryLightAttack() {
+  if (blocking) return;
+  if (action === 'idle') {
+    startLightHit(0);
+  } else if (action === 'comboWait' && comboWindowOpen) {
+    startLightHit(comboCount);
+  }
+}
+function startLightHit(hitIndex) {
+  action = 'light';
+  actionT = 0;
+  actionDur = LIGHT_HIT_DURATION;
+  comboCount = hitIndex + 1;
+  comboWindowOpen = false;
+  currentHitDone = false;
+  startedAirborne = !grounded;
+  document.getElementById('comboCounter').textContent = 'HIT ' + comboCount + ' / 5';
+  document.getElementById('comboCounter').classList.add('show');
+  lungeVec.copy(facingDir()).multiplyScalar(2.4);
+}
+function tryHeavyAttack() {
+  if (blocking) return;
+  if (action !== 'idle') return;
+  action = 'heavy';
+  actionT = 0;
+  actionDur = HEAVY_WINDUP + HEAVY_STRIKE;
+  currentHitDone = false;
+  startedAirborne = !grounded;
+  if (startedAirborne) {
+    heavyDiveActive = true;
+    velocityY = -22;
+  }
+  document.getElementById('comboCounter').textContent = 'HEAVY';
+  document.getElementById('comboCounter').classList.add('show');
+  lungeVec.copy(facingDir()).multiplyScalar(3.2);
+}
+function tryJump() {
+  if (grounded && action === 'idle' && !blocking) {
+    velocityY = JUMP_IMPULSE;
+    grounded = false;
+  }
+}
+function facingDir() {
+  return new THREE.Vector3(Math.sin(facingAngle), 0, Math.cos(facingAngle));
+}
+
+function flashCenterMsg(text) {
+  const el = document.getElementById('centerMsg');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(flashCenterMsg._t);
+  flashCenterMsg._t = setTimeout(() => el.classList.remove('show'), 900);
+}
+
+function updateEnemyUI() {
+  const panel = document.getElementById('enemyPanel');
+  const fill = document.getElementById('enemyHealthFill');
+  if (enemyRig.userData.alive) {
+    panel.classList.add('visible');
+    fill.style.width = Math.max(0, (enemyRig.userData.hp / enemyRig.userData.maxHp) * 100) + '%';
+  } else {
+    panel.classList.remove('visible');
+  }
+}
+function updatePlayerUI() {
+  document.getElementById('playerHealthFill').style.width = Math.max(0, (playerHP / maxPlayerHP) * 100) + '%';
+}
+function damageEnemy(dmg, knockbackMag) {
+  if (!enemyRig.userData.alive) return;
+  enemyRig.userData.hp = Math.max(0, enemyRig.userData.hp - dmg);
+  enemyRig.userData.hitFlashT = 0.15;
+  const dir = new THREE.Vector3().subVectors(enemyRig.root.position, player.position);
+  dir.y = 0;
+  if (dir.lengthSq() > 0.0001) dir.normalize(); else dir.set(0,0,1);
+  enemyRig.userData.knockback.copy(dir).multiplyScalar(knockbackMag);
+  updateEnemyUI();
+  if (enemyRig.userData.hp <= 0) {
+    enemyRig.userData.alive = false;
+    flashCenterMsg('DEFEATED');
+    setTimeout(() => {
+      enemyRig.root.position.set((seededRand(performance.now())*2-1)*8, 0, (seededRand(performance.now()+1)*2-1)*8 - 3);
+      enemyRig.userData.hp = enemyRig.userData.maxHp;
+      enemyRig.userData.alive = true;
+      updateEnemyUI();
+    }, 1800);
+  }
+}
+function applyDamageToPlayer(dmg) {
+  if (playerHP <= 0) return;
+  const toEnemy = new THREE.Vector3().subVectors(enemyRig.root.position, player.position);
+  toEnemy.y = 0; toEnemy.normalize();
+  const facingDot = facingDir().dot(toEnemy);
+  let finalDmg = dmg;
+  if (blocking && facingDot > 0.2) {
+    finalDmg = Math.round(dmg * 0.15);
+    flashCenterMsg('BLOCKED');
+  } else {
+    flashCenterMsg('HIT');
+  }
+  playerHP = Math.max(0, playerHP - finalDmg);
+  updatePlayerUI();
+  if (playerHP <= 0) {
+    flashCenterMsg('DOWN');
+    setTimeout(() => { playerHP = maxPlayerHP; updatePlayerUI(); }, 1600);
+  }
+}
+function updateLockIndicator() {
+  const indicator = document.getElementById('lockIndicator');
+  if (lockedOn && enemyRig.userData.alive) {
+    const pos = enemyRig.root.position.clone();
+    pos.y += 1.4;
+    pos.project(camera);
+    const x = (pos.x * 0.5 + 0.5) * window.innerWidth;
+    const y = (-pos.y * 0.5 + 0.5) * window.innerHeight;
+    indicator.style.display = pos.z < 1 ? 'block' : 'none';
+    indicator.style.left = x + 'px';
+    indicator.style.top = y + 'px';
+  } else {
+    indicator.style.display = 'none';
+  }
+}
+
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  if (paused) { clock.getDelta(); return; }
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const time = performance.now() * 0.001;
+
+  // -- Camera-relative movement input --
+  let moveX = 0, moveZ = 0;
+  if (keys['KeyW']) moveZ -= 1;
+  if (keys['KeyS']) moveZ += 1;
+  if (keys['KeyA']) moveX -= 1;
+  if (keys['KeyD']) moveX += 1;
+  moveX += moveStick.x;
+  moveZ += moveStick.y;
+  const moveMag = Math.hypot(moveX, moveZ);
+  if (moveMag > 1) { moveX /= moveMag; moveZ /= moveMag; }
+  const hasInput = moveMag > 0.08;
+
+  // -- Look joystick (continuous rotation, complements mouse drag) --
+  if (Math.abs(lookStick.x) > 0.05 || Math.abs(lookStick.y) > 0.05) {
+    yaw -= lookStick.x * dt * 2.6;
+    pitch -= lookStick.y * dt * 2.0;
+    pitch = Math.max(0.12, Math.min(1.15, pitch));
+  }
+
+  const camForward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const camRight = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  const moveVec = new THREE.Vector3()
+    .addScaledVector(camForward, -moveZ)
+    .addScaledVector(camRight, moveX);
+
+  blocking = keys['KeyC'] && action === 'idle' && grounded;
+
+  // -- Dash --
+  if ((keys['ShiftLeft'] || dashRequested) && dashCharge >= 34 && !isDashing && hasInput && action === 'idle' && !blocking) {
+    isDashing = true;
+    dashT = 0.18;
+    dashCharge -= 34;
+  }
+  dashRequested = false;
+  dashCharge = Math.min(maxDash, dashCharge + dt * 22);
+
+  let speed = 5.0;
+  if (blocking) speed *= 0.4;
+  if (isDashing) {
+    speed = 15.5;
+    dashT -= dt;
+    if (dashT <= 0) isDashing = false;
+  }
+  if (action !== 'idle') speed *= 0.15; // barely creep during attacks; lunge handles the real motion
+
+  velocity.set(moveVec.x * speed, 0, moveVec.z * speed);
+  player.position.addScaledVector(velocity, dt);
+
+  // -- Gravity / jump --
+  if (!grounded) {
+    velocityY += GRAVITY * dt;
+    if (action === 'light' && startedAirborne) {
+      velocityY = THREE.MathUtils.lerp(velocityY, 0, dt * 12); // light attack holds you aloft briefly
+    }
+    player.position.y += velocityY * dt;
+    if (player.position.y <= 0) {
+      player.position.y = 0;
+      velocityY = 0;
+      grounded = true;
+      if (heavyDiveActive) {
+        heavyDiveActive = false;
+        const d = player.position.distanceTo(enemyRig.root.position);
+        if (d < 3.2) {
+          damageEnemy(30, 7);
+          flashCenterMsg('SLAM');
+        }
+      }
+    }
+  }
+
+  // -- Keep player within the clearing --
+  const pDist = Math.hypot(player.position.x, player.position.z);
+  if (pDist > ARENA_RADIUS) {
+    const k = ARENA_RADIUS / pDist;
+    player.position.x *= k; player.position.z *= k;
+  }
+
+  // -- Facing --
+  if (lockedOn && enemyRig.userData.alive) {
+    const toEnemy = new THREE.Vector3().subVectors(enemyRig.root.position, player.position);
+    toEnemy.y = 0;
+    const targetAngle = Math.atan2(toEnemy.x, toEnemy.z);
+    facingAngle = lerpAngle(facingAngle, targetAngle, 0.28);
+  } else if (hasInput) {
+    const targetAngle = Math.atan2(moveVec.x, moveVec.z);
+    facingAngle = lerpAngle(facingAngle, targetAngle, 0.32);
+  }
+  player.rotation.y = facingAngle;
+
+  // -- Action state machine --
+  if (action === 'light' || action === 'heavy') {
+    actionT += dt;
+    const progress = Math.min(1, actionT / actionDur);
+
+    // lunge (front-loaded, decays)
+    const lungeFactor = Math.max(0, 1 - progress * 2.2);
+    player.position.addScaledVector(lungeVec, dt * lungeFactor);
+
+    if (action === 'light') {
+      const t = progress * Math.PI * 2;
+      const dirSign = (comboCount % 2 === 0) ? -1 : 1;
+      playerRig.rightArm.shoulder.rotation.set(
+        0.7 * Math.sin(2 * t) * dirSign,
+        0,
+        0.9 * Math.sin(t) * dirSign
+      );
+      playerRig.rightArm.elbow.rotation.x = -0.3;
+
+      if (!currentHitDone && progress > 0.3 && progress < 0.75) {
+        currentHitDone = true;
+        const d = player.position.distanceTo(enemyRig.root.position);
+        const toEnemy = new THREE.Vector3().subVectors(enemyRig.root.position, player.position).normalize();
+        if (d < 2.5 && facingDir().dot(toEnemy) > 0.4) {
+          damageEnemy(comboCount === 5 ? 10 : 8, comboCount === 5 ? 5.5 : 2.6);
+        }
+      }
+      if (progress >= 1) {
+        if (comboCount >= 5) {
+          enterRecovery(LIGHT_RECOVERY);
+        } else {
+          comboWindowOpen = true;
+          comboWindowT = LIGHT_COMBO_WINDOW;
+          action = 'comboWait';
+        }
+      }
+    } else {
+      // heavy: windup then strike (vertical slam if airborne, otherwise a big overhead swing)
+      if (actionT < HEAVY_WINDUP) {
+        const wp = actionT / HEAVY_WINDUP;
+        playerRig.rightArm.shoulder.rotation.set(0, 0, THREE.MathUtils.lerp(0, -1.4, easeOutQuad(wp)));
+      } else {
+        const sp = (actionT - HEAVY_WINDUP) / HEAVY_STRIKE;
+        playerRig.rightArm.shoulder.rotation.set(0, 0, THREE.MathUtils.lerp(-1.4, 2.0, easeOutQuad(Math.min(1, sp))));
+        if (!currentHitDone && sp > 0.15 && sp < 0.6) {
+          currentHitDone = true;
+          const d = player.position.distanceTo(enemyRig.root.position);
+          const toEnemy = new THREE.Vector3().subVectors(enemyRig.root.position, player.position).normalize();
+          if (d < 2.5 && facingDir().dot(toEnemy) > 0.4) {
+            damageEnemy(24, 5.5);
+          }
+        }
+      }
+      if (progress >= 1) enterRecovery(HEAVY_RECOVERY);
+    }
+  } else if (action === 'comboWait') {
+    comboWindowT -= dt;
+    playerRig.rightArm.shoulder.rotation.y = THREE.MathUtils.lerp(playerRig.rightArm.shoulder.rotation.y, 0, dt * 8);
+    if (comboWindowT <= 0) {
+      comboWindowOpen = false;
+      enterRecovery(LIGHT_RECOVERY * 0.6);
+    }
+  } else if (action === 'recovery') {
+    actionT += dt;
+    playerRig.rightArm.shoulder.rotation.set(
+      THREE.MathUtils.lerp(playerRig.rightArm.shoulder.rotation.x, 0, dt * 6),
+      THREE.MathUtils.lerp(playerRig.rightArm.shoulder.rotation.y, 0, dt * 6),
+      THREE.MathUtils.lerp(playerRig.rightArm.shoulder.rotation.z, 0, dt * 6)
+    );
+    if (actionT >= actionDur) {
+      action = 'idle';
+      comboCount = 0;
+      document.getElementById('comboCounter').classList.remove('show');
+    }
+  } else {
+    // idle/moving arm sway
+    playerRig.rightArm.shoulder.rotation.x = THREE.MathUtils.lerp(playerRig.rightArm.shoulder.rotation.x, 0, dt * 8);
+    playerRig.rightArm.shoulder.rotation.y = THREE.MathUtils.lerp(playerRig.rightArm.shoulder.rotation.y, 0, dt * 8);
+    playerRig.rightArm.shoulder.rotation.z = THREE.MathUtils.lerp(playerRig.rightArm.shoulder.rotation.z, 0, dt * 8);
+  }
+
+  function enterRecovery(dur) {
+    action = 'recovery';
+    actionT = 0;
+    actionDur = dur;
+  }
+
+  // -- Melee no-clip: keep min distance from enemy --
+  const toEnemyFull = new THREE.Vector3().subVectors(player.position, enemyRig.root.position);
+  toEnemyFull.y = 0;
+  const distE = toEnemyFull.length();
+  const MIN_DIST = 1.35;
+  if (distE < MIN_DIST && distE > 0.0001) {
+    toEnemyFull.multiplyScalar(MIN_DIST / distE);
+    player.position.x = enemyRig.root.position.x + toEnemyFull.x;
+    player.position.z = enemyRig.root.position.z + toEnemyFull.z;
+  }
+
+  // -- Enemy knockback/flash decay --
+  if (enemyRig.userData.knockback.lengthSq() > 0.001) {
+    enemyRig.root.position.addScaledVector(enemyRig.userData.knockback, dt);
+    enemyRig.userData.knockback.multiplyScalar(Math.max(0, 1 - dt * 6));
+  }
+  if (enemyRig.userData.hitFlashT > 0) {
+    enemyRig.userData.hitFlashT -= dt;
+  }
+  const flashOn = enemyRig.userData.hitFlashT > 0;
+  enemyRig.hip.traverse(obj => {
+    if (obj.isMesh && obj.material && obj.material.emissive) {
+      obj.material.emissive.setHex(flashOn ? 0x661010 : 0x000000);
+    }
+  });
+
+  // -- Walk animation (legs/left arm) --
+  const moving = hasInput && action === 'idle';
+  const walkSpeed = isDashing ? 16 : (moving ? 8 : 0);
+  const swing = Math.sin(time * walkSpeed) * (moving || isDashing ? 0.55 : 0);
+  [playerRig.leftLeg, playerRig.rightLeg].forEach((leg, i) => {
+    leg.hipJoint.rotation.x = swing * (i === 0 ? 1 : -1);
+    leg.knee.rotation.x = Math.max(0, -swing * (i === 0 ? 1 : -1)) * 0.8;
+  });
+  if (action === 'idle') {
+    playerRig.leftArm.shoulder.rotation.x = -swing * 0.7;
+  }
+  playerRig.hip.position.y = 0.95 + Math.abs(Math.sin(time * walkSpeed * 2)) * (moving ? 0.03 : 0);
+
+  // -- Enemy AI: chase, sidestep, and attack the player --
+  if (enemyRig.userData.alive) {
+    const toPlayer = new THREE.Vector3().subVectors(player.position, enemyRig.root.position);
+    toPlayer.y = 0;
+    const distToPlayer = toPlayer.length();
+    const dirToPlayer = distToPlayer > 0.0001 ? toPlayer.clone().normalize() : new THREE.Vector3(0,0,1);
+
+    if (enemyState !== 'strike') {
+      const targetAngle = Math.atan2(dirToPlayer.x, dirToPlayer.z);
+      enemyRig.root.rotation.y = lerpAngle(enemyRig.root.rotation.y, targetAngle, 0.08);
+    }
+    enemyStateT += dt;
+
+    if (enemyState === 'chase') {
+      const preferred = 2.4;
+      if (distToPlayer > preferred) {
+        enemyRig.root.position.addScaledVector(dirToPlayer, dt * 3.1);
+      }
+      enemyActionTimer -= dt;
+      if (enemyActionTimer <= 0) {
+        const roll = Math.random();
+        if (distToPlayer < 3.4 && roll < 0.5) {
+          enemyState = 'windup'; enemyStateT = 0;
+        } else {
+          enemyState = 'sidestep'; enemyStateT = 0;
+          const side = Math.random() < 0.5 ? 1 : -1;
+          const rightVec = new THREE.Vector3(dirToPlayer.z, 0, -dirToPlayer.x).multiplyScalar(side);
+          enemyLungeVec.copy(rightVec).multiplyScalar(4.5);
+          enemyVelY = 6.5; enemyGrounded = false;
+        }
+        enemyActionTimer = 2.2 + Math.random() * 2.2;
+      }
+    } else if (enemyState === 'sidestep') {
+      enemyRig.root.position.addScaledVector(enemyLungeVec, dt);
+      enemyLungeVec.multiplyScalar(Math.max(0, 1 - dt * 3));
+      if (!enemyGrounded) {
+        enemyVelY += GRAVITY * dt;
+        enemyRig.root.position.y += enemyVelY * dt;
+        if (enemyRig.root.position.y <= 0) {
+          enemyRig.root.position.y = 0; enemyVelY = 0; enemyGrounded = true;
+        }
+      }
+      if (enemyStateT > 0.5 && enemyGrounded) enemyState = 'chase';
+    } else if (enemyState === 'windup') {
+      enemyRig.rightArm.shoulder.rotation.x = THREE.MathUtils.lerp(enemyRig.rightArm.shoulder.rotation.x, -1.3, dt * 8);
+      if (enemyStateT > 0.45) {
+        enemyState = 'strike'; enemyStateT = 0; enemyHitDone = false;
+        enemyLungeVec.copy(dirToPlayer).multiplyScalar(5.5);
+      }
+    } else if (enemyState === 'strike') {
+      const sp = Math.min(1, enemyStateT / 0.3);
+      enemyRig.rightArm.shoulder.rotation.x = THREE.MathUtils.lerp(-1.3, 1.4, easeOutQuad(sp));
+      enemyRig.root.position.addScaledVector(enemyLungeVec, dt * Math.max(0, 1 - sp * 1.4));
+      if (!enemyHitDone && sp > 0.25 && sp < 0.7) {
+        const d2 = enemyRig.root.position.distanceTo(player.position);
+        if (d2 < 2.3) {
+          enemyHitDone = true;
+          applyDamageToPlayer(14);
+        }
+      }
+      if (enemyStateT > 0.32) { enemyState = 'recover'; enemyStateT = 0; }
+    } else if (enemyState === 'recover') {
+      enemyRig.rightArm.shoulder.rotation.x = THREE.MathUtils.lerp(enemyRig.rightArm.shoulder.rotation.x, 0, dt * 6);
+      if (enemyStateT > 0.5) enemyState = 'chase';
+    }
+
+    // stay inside the clearing
+    const eDist = Math.hypot(enemyRig.root.position.x, enemyRig.root.position.z);
+    if (eDist > ARENA_RADIUS) {
+      const k = ARENA_RADIUS / eDist;
+      enemyRig.root.position.x *= k; enemyRig.root.position.z *= k;
+    }
+
+    // subtle idle bob layered under everything
+    const et = time * 1.6;
+    enemyRig.hip.position.y = 0.95 + Math.sin(et) * 0.02;
+  }
+
+  // -- Camera orbit (mouse-look) --
+  const camOffset = new THREE.Vector3(
+    Math.sin(yaw) * Math.cos(pitch),
+    Math.sin(pitch),
+    Math.cos(yaw) * Math.cos(pitch)
+  ).multiplyScalar(CAM_DIST);
+  const desiredCamPos = player.position.clone().add(new THREE.Vector3(0, CAM_HEIGHT_BASE, 0)).add(camOffset);
+
+  // simple camera-vs-ground/tree clearance: don't let camera dip below ground
+  desiredCamPos.y = Math.max(desiredCamPos.y, 0.6);
+
+  camera.position.lerp(desiredCamPos, 1 - Math.pow(0.0005, dt));
+  const lookTarget = player.position.clone().add(new THREE.Vector3(0, 1.1, 0));
+  camera.lookAt(lookTarget);
+  const targetFov = isDashing ? 70 : 62;
+  camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, dt * 6);
+  camera.updateProjectionMatrix();
+
+  document.getElementById('dashfill').style.width = dashCharge + '%';
+  updateLockIndicator();
+
+  renderer.render(scene, camera);
+}
+
+function easeOutQuad(t) { return 1 - (1 - t) * (1 - t); }
+function lerpAngle(a, b, t) {
+  let diff = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
+  if (diff < -Math.PI) diff += Math.PI * 2;
+  return a + diff * t;
+}
+
+updateEnemyUI();
+updatePlayerUI();
+animate();
+</script>
+</body>
+</html>
