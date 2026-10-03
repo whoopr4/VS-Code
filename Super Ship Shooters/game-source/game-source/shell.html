@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Super Ship Shooters — Pass 1</title>
+<style>
+  :root {
+    --bg: #05070c;
+    --panel-bg: rgba(8, 12, 20, 0.72);
+    --panel-border: rgba(120, 170, 255, 0.25);
+    --text-primary: #e8edf7;
+    --text-dim: #7f8caa;
+    --accent: #5fd0ff;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--text-primary);
+  }
+  #canvas-holder { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  #hud {
+    position: fixed;
+    top: calc(14px + env(safe-area-inset-top, 0px));
+    left: 14px;
+    right: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    backdrop-filter: blur(6px);
+  }
+  #health-panel { display: flex; flex-direction: column; gap: 6px; }
+  #health-label { font-size: 11px; letter-spacing: 0.04em; color: var(--text-dim); }
+  #health-bar-track {
+    width: 160px; height: 10px; border-radius: 6px;
+    background: rgba(255,255,255,0.08);
+    overflow: hidden;
+  }
+  #health-bar-fill {
+    height: 100%; width: 100%;
+    background: linear-gradient(90deg, #5fd0ff, #7fffb0);
+    transition: width 0.2s ease;
+  }
+  #score-panel { font-size: 13px; color: var(--text-dim); text-align: right; }
+  #score-value { color: var(--text-primary); font-size: 20px; font-weight: 600; }
+
+  #controls-hint {
+    position: fixed;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 12px;
+    color: var(--text-dim);
+    text-align: center;
+    z-index: 10;
+    transition: opacity 0.6s ease;
+  }
+  #controls-hint b { color: var(--text-primary); font-weight: 600; }
+
+  #gamepad-status {
+    position: fixed;
+    top: calc(14px + env(safe-area-inset-top, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: var(--text-dim);
+    z-index: 10;
+  }
+  #gamepad-status.connected { color: #7fffb0; }
+
+  /* --- Player join bar (bottom) -------------------------------------- */
+  #player-bar {
+    position: fixed;
+    bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    z-index: 10;
+  }
+  .player-chip {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 999px;
+    padding: 5px 10px 5px 6px;
+    font-size: 12px;
+    transition: opacity 0.3s ease;
+  }
+  .player-chip.chip-out { opacity: 0.35; }
+  .player-chip.chip-critical { border-color: #ff4d4d; animation: chip-warn 0.6s ease-in-out infinite; }
+  @keyframes chip-warn { 50% { border-color: #ff9a9a; } }
+  .chip-swatch { width: 12px; height: 12px; border-radius: 50%; }
+  .chip-label { font-weight: 600; }
+  .chip-lives { color: var(--text-primary); font-weight: 600; }
+  .chip-weapons { display: flex; gap: 6px; font-size: 10px; color: var(--text-dim); letter-spacing: 0.03em; }
+  .chip-weapons .w-active { color: var(--text-primary); font-weight: 700; }
+  .chip-bars { display: flex; gap: 3px; }
+  .chip-seg {
+    width: 14px; height: 8px; border-radius: 2px;
+    background: rgba(255,255,255,0.12);
+    transition: background 0.2s ease;
+  }
+  .chip-seg.seg-critical { animation: seg-warn 0.5s ease-in-out infinite; }
+  @keyframes seg-warn { 0%, 100% { background: #ff2222 !important; } 50% { background: #ff9a9a !important; } }
+
+  #connect-prompts { position: fixed; inset: 0; pointer-events: none; z-index: 15; }
+  .connect-prompt {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    background: rgba(10, 16, 26, 0.8);
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+    animation: prompt-pop 0.9s ease-in-out infinite;
+  }
+  @keyframes prompt-pop { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
+
+  /* --- Menu / game-over overlays --------------------------------------- */
+  .overlay {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px;
+    z-index: 20;
+    background: radial-gradient(ellipse at center, rgba(6,10,18,0.35) 0%, rgba(4,6,10,0.75) 100%);
+  }
+  .overlay.hidden { display: none; }
+  .game-logo {
+    font-size: clamp(32px, 7vw, 64px);
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-align: center;
+    color: #eaf6ff;
+    text-shadow: 0 0 12px rgba(95,208,255,0.8), 0 0 32px rgba(95,208,255,0.4);
+    animation: logo-pulse 2.6s ease-in-out infinite;
+  }
+  @keyframes logo-pulse {
+    0%, 100% { transform: scale(1); text-shadow: 0 0 12px rgba(95,208,255,0.8), 0 0 32px rgba(95,208,255,0.4); }
+    50% { transform: scale(1.035); text-shadow: 0 0 20px rgba(143,232,255,1), 0 0 52px rgba(95,208,255,0.7); }
+  }
+  .prompt-text {
+    font-size: 16px;
+    color: var(--text-dim);
+    animation: prompt-blink 1.2s steps(2, start) infinite;
+  }
+  @keyframes prompt-blink { 50% { opacity: 0.15; } }
+  #btn-pause {
+    font-family: inherit; font-size: 14px; font-weight: 700; color: var(--text-primary);
+    cursor: pointer; pointer-events: auto; line-height: 1;
+  }
+  .menu-btn {
+    font-family: inherit; font-size: 15px; font-weight: 700; color: #fff;
+    background: rgba(95,208,255,0.18); border: 1px solid var(--panel-border);
+    border-radius: 8px; padding: 10px 28px; cursor: pointer;
+  }
+  .menu-btn:hover { background: rgba(95,208,255,0.3); }
+  .menu-btn-danger { background: rgba(255,90,90,0.18); }
+  .menu-btn-danger:hover { background: rgba(255,90,90,0.32); }
+  .gameover-title {
+    font-size: clamp(28px, 6vw, 48px);
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: #ff8f8f;
+    text-shadow: 0 0 20px rgba(255,110,110,0.6);
+  }
+
+  /* --- Touch controls (mobile) --------------------------------------- */
+  #mobile-controls { display: none; }
+  @media (pointer: coarse) {
+    #mobile-controls { display: block; }
+  }
+  #touch-joystick-base {
+    position: fixed;
+    left: calc(24px + env(safe-area-inset-left, 0px));
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    width: 120px; height: 120px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--panel-border);
+    touch-action: none;
+    z-index: 30;
+  }
+  #touch-joystick-nub {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 54px; height: 54px;
+    margin: -27px 0 0 -27px;
+    border-radius: 50%;
+    background: rgba(95,208,255,0.5);
+    border: 1px solid rgba(95,208,255,0.9);
+    pointer-events: none;
+  }
+  #touch-buttons {
+    position: fixed;
+    right: calc(20px + env(safe-area-inset-right, 0px));
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    display: flex; align-items: flex-end; gap: 10px;
+    z-index: 30;
+  }
+  .touch-btn {
+    font-family: inherit; font-weight: 700; color: #fff;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid var(--panel-border);
+    border-radius: 50%;
+    touch-action: none;
+    user-select: none;
+  }
+  .touch-btn-small { width: 46px; height: 46px; font-size: 9px; }
+  .touch-btn { width: 62px; height: 62px; font-size: 10px; }
+  .touch-btn-big { width: 78px; height: 78px; font-size: 12px; background: rgba(255,120,90,0.25); }
+  #touch-btn-join {
+    position: fixed;
+    top: calc(50% + 60px);
+    left: 50%; transform: translateX(-50%);
+    font-family: inherit; font-weight: 700; letter-spacing: 0.04em;
+    color: #fff; background: rgba(95,208,255,0.25);
+    border: 1px solid var(--panel-border);
+    border-radius: 999px;
+    padding: 10px 18px;
+    touch-action: none;
+    z-index: 30;
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-holder"></div>
+
+<div id="hud">
+  <div id="score-panel" class="panel">
+    <div>SCORE</div>
+    <div id="score-value">0</div>
+  </div>
+  <button id="btn-pause" class="panel" style="cursor:pointer;">II</button>
+</div>
+
+<div id="gamepad-status">No gamepad detected — using keyboard</div>
+<div id="controls-hint">Move: <b>Arrow keys / WASD</b> &nbsp;·&nbsp; Fire: <b>Space</b> &nbsp;·&nbsp; Gamepad: <b>Left stick + Right trigger</b></div>
+<div id="player-bar"></div>
+<div id="connect-prompts"></div>
+
+<div id="menu-overlay" class="overlay">
+  <div class="game-logo">SUPER SHIP<br>SHOOTERS</div>
+  <div class="prompt-text">Press Start — A (gamepad) or Enter (keyboard)</div>
+</div>
+
+<div id="gameover-overlay" class="overlay hidden">
+  <div class="gameover-title">GAME OVER</div>
+  <div class="prompt-text">Press Enter to return to the menu</div>
+</div>
+
+<div id="pause-overlay" class="overlay hidden">
+  <div class="gameover-title" style="color:#eaf6ff; text-shadow:0 0 20px rgba(95,208,255,0.6);">PAUSED</div>
+  <button id="btn-resume" class="menu-btn">Resume</button>
+  <button id="btn-quit" class="menu-btn menu-btn-danger">Quit to Menu</button>
+  <div class="prompt-text">Esc or Start to resume</div>
+</div>
+
+<div id="mobile-controls">
+  <div id="touch-joystick-base">
+    <div id="touch-joystick-nub"></div>
+  </div>
+  <div id="touch-buttons">
+    <button id="touch-btn-connect" class="touch-btn touch-btn-small">LINK</button>
+    <button id="touch-btn-swap" class="touch-btn touch-btn-small">SWAP</button>
+    <button id="touch-btn-special" class="touch-btn">SPECIAL</button>
+    <button id="touch-btn-fire" class="touch-btn touch-btn-big">FIRE</button>
+  </div>
+  <button id="touch-btn-join">TAP TO JOIN / START</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+<!--GAME_SCRIPTS-->
+</script>
+</body>
+</html>
