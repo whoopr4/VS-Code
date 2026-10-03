@@ -1,0 +1,3697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Super Ship Shooters — Pass 1</title>
+<style>
+  :root {
+    --bg: #05070c;
+    --panel-bg: rgba(8, 12, 20, 0.72);
+    --panel-border: rgba(120, 170, 255, 0.25);
+    --text-primary: #e8edf7;
+    --text-dim: #7f8caa;
+    --accent: #5fd0ff;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--text-primary);
+  }
+  #canvas-holder { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  #hud {
+    position: fixed;
+    top: calc(14px + env(safe-area-inset-top, 0px));
+    left: 14px;
+    right: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    backdrop-filter: blur(6px);
+  }
+  #health-panel { display: flex; flex-direction: column; gap: 6px; }
+  #health-label { font-size: 11px; letter-spacing: 0.04em; color: var(--text-dim); }
+  #health-bar-track {
+    width: 160px; height: 10px; border-radius: 6px;
+    background: rgba(255,255,255,0.08);
+    overflow: hidden;
+  }
+  #health-bar-fill {
+    height: 100%; width: 100%;
+    background: linear-gradient(90deg, #5fd0ff, #7fffb0);
+    transition: width 0.2s ease;
+  }
+  #score-panel { font-size: 13px; color: var(--text-dim); text-align: right; }
+  #score-value { color: var(--text-primary); font-size: 20px; font-weight: 600; }
+
+  #controls-hint {
+    position: fixed;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 12px;
+    color: var(--text-dim);
+    text-align: center;
+    z-index: 10;
+    transition: opacity 0.6s ease;
+  }
+  #controls-hint b { color: var(--text-primary); font-weight: 600; }
+
+  #gamepad-status {
+    position: fixed;
+    top: calc(14px + env(safe-area-inset-top, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: var(--text-dim);
+    z-index: 10;
+  }
+  #gamepad-status.connected { color: #7fffb0; }
+
+  /* --- Player join bar (bottom) -------------------------------------- */
+  #player-bar {
+    position: fixed;
+    bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    z-index: 10;
+  }
+  .player-chip {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 999px;
+    padding: 5px 10px 5px 6px;
+    font-size: 12px;
+    transition: opacity 0.3s ease;
+  }
+  .player-chip.chip-out { opacity: 0.35; }
+  .player-chip.chip-critical { border-color: #ff4d4d; animation: chip-warn 0.6s ease-in-out infinite; }
+  @keyframes chip-warn { 50% { border-color: #ff9a9a; } }
+  .chip-swatch { width: 12px; height: 12px; border-radius: 50%; }
+  .chip-label { font-weight: 600; }
+  .chip-lives { color: var(--text-primary); font-weight: 600; }
+  .chip-weapons { display: flex; gap: 6px; font-size: 10px; color: var(--text-dim); letter-spacing: 0.03em; }
+  .chip-weapons .w-active { color: var(--text-primary); font-weight: 700; }
+  .chip-bars { display: flex; gap: 3px; }
+  .chip-seg {
+    width: 14px; height: 8px; border-radius: 2px;
+    background: rgba(255,255,255,0.12);
+    transition: background 0.2s ease;
+  }
+  .chip-seg.seg-critical { animation: seg-warn 0.5s ease-in-out infinite; }
+  @keyframes seg-warn { 0%, 100% { background: #ff2222 !important; } 50% { background: #ff9a9a !important; } }
+
+  #connect-prompts { position: fixed; inset: 0; pointer-events: none; z-index: 15; }
+  .connect-prompt {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    background: rgba(10, 16, 26, 0.8);
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+    animation: prompt-pop 0.9s ease-in-out infinite;
+  }
+  @keyframes prompt-pop { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
+
+  /* --- Menu / game-over overlays --------------------------------------- */
+  .overlay {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px;
+    z-index: 20;
+    background: radial-gradient(ellipse at center, rgba(6,10,18,0.35) 0%, rgba(4,6,10,0.75) 100%);
+  }
+  .overlay.hidden { display: none; }
+  .game-logo {
+    font-size: clamp(32px, 7vw, 64px);
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-align: center;
+    color: #eaf6ff;
+    text-shadow: 0 0 12px rgba(95,208,255,0.8), 0 0 32px rgba(95,208,255,0.4);
+    animation: logo-pulse 2.6s ease-in-out infinite;
+  }
+  @keyframes logo-pulse {
+    0%, 100% { transform: scale(1); text-shadow: 0 0 12px rgba(95,208,255,0.8), 0 0 32px rgba(95,208,255,0.4); }
+    50% { transform: scale(1.035); text-shadow: 0 0 20px rgba(143,232,255,1), 0 0 52px rgba(95,208,255,0.7); }
+  }
+  .prompt-text {
+    font-size: 16px;
+    color: var(--text-dim);
+    animation: prompt-blink 1.2s steps(2, start) infinite;
+  }
+  @keyframes prompt-blink { 50% { opacity: 0.15; } }
+  #btn-pause {
+    font-family: inherit; font-size: 14px; font-weight: 700; color: var(--text-primary);
+    cursor: pointer; pointer-events: auto; line-height: 1;
+  }
+  .menu-btn {
+    font-family: inherit; font-size: 15px; font-weight: 700; color: #fff;
+    background: rgba(95,208,255,0.18); border: 1px solid var(--panel-border);
+    border-radius: 8px; padding: 10px 28px; cursor: pointer;
+  }
+  .menu-btn:hover { background: rgba(95,208,255,0.3); }
+  .menu-btn-danger { background: rgba(255,90,90,0.18); }
+  .menu-btn-danger:hover { background: rgba(255,90,90,0.32); }
+  .gameover-title {
+    font-size: clamp(28px, 6vw, 48px);
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: #ff8f8f;
+    text-shadow: 0 0 20px rgba(255,110,110,0.6);
+  }
+
+  /* --- Touch controls (mobile) --------------------------------------- */
+  #mobile-controls { display: none; }
+  @media (pointer: coarse) {
+    #mobile-controls { display: block; }
+  }
+  #touch-joystick-base {
+    position: fixed;
+    left: calc(24px + env(safe-area-inset-left, 0px));
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    width: 120px; height: 120px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--panel-border);
+    touch-action: none;
+    z-index: 30;
+  }
+  #touch-joystick-nub {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 54px; height: 54px;
+    margin: -27px 0 0 -27px;
+    border-radius: 50%;
+    background: rgba(95,208,255,0.5);
+    border: 1px solid rgba(95,208,255,0.9);
+    pointer-events: none;
+  }
+  #touch-buttons {
+    position: fixed;
+    right: calc(20px + env(safe-area-inset-right, 0px));
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    display: flex; align-items: flex-end; gap: 10px;
+    z-index: 30;
+  }
+  .touch-btn {
+    font-family: inherit; font-weight: 700; color: #fff;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid var(--panel-border);
+    border-radius: 50%;
+    touch-action: none;
+    user-select: none;
+  }
+  .touch-btn-small { width: 46px; height: 46px; font-size: 9px; }
+  .touch-btn { width: 62px; height: 62px; font-size: 10px; }
+  .touch-btn-big { width: 78px; height: 78px; font-size: 12px; background: rgba(255,120,90,0.25); }
+  #touch-btn-join {
+    position: fixed;
+    top: calc(50% + 60px);
+    left: 50%; transform: translateX(-50%);
+    font-family: inherit; font-weight: 700; letter-spacing: 0.04em;
+    color: #fff; background: rgba(95,208,255,0.25);
+    border: 1px solid var(--panel-border);
+    border-radius: 999px;
+    padding: 10px 18px;
+    touch-action: none;
+    z-index: 30;
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-holder"></div>
+
+<div id="hud">
+  <div id="score-panel" class="panel">
+    <div>SCORE</div>
+    <div id="score-value">0</div>
+  </div>
+  <button id="btn-pause" class="panel" style="cursor:pointer;">II</button>
+</div>
+
+<div id="gamepad-status">No gamepad detected — using keyboard</div>
+<div id="controls-hint">Move: <b>Arrow keys / WASD</b> &nbsp;·&nbsp; Fire: <b>Space</b> &nbsp;·&nbsp; Gamepad: <b>Left stick + Right trigger</b></div>
+<div id="player-bar"></div>
+<div id="connect-prompts"></div>
+
+<div id="menu-overlay" class="overlay">
+  <div class="game-logo">SUPER SHIP<br>SHOOTERS</div>
+  <div class="prompt-text">Press Start — A (gamepad) or Enter (keyboard)</div>
+</div>
+
+<div id="gameover-overlay" class="overlay hidden">
+  <div class="gameover-title">GAME OVER</div>
+  <div class="prompt-text">Press Enter to return to the menu</div>
+</div>
+
+<div id="pause-overlay" class="overlay hidden">
+  <div class="gameover-title" style="color:#eaf6ff; text-shadow:0 0 20px rgba(95,208,255,0.6);">PAUSED</div>
+  <button id="btn-resume" class="menu-btn">Resume</button>
+  <button id="btn-quit" class="menu-btn menu-btn-danger">Quit to Menu</button>
+  <div class="prompt-text">Esc or Start to resume</div>
+</div>
+
+<div id="mobile-controls">
+  <div id="touch-joystick-base">
+    <div id="touch-joystick-nub"></div>
+  </div>
+  <div id="touch-buttons">
+    <button id="touch-btn-connect" class="touch-btn touch-btn-small">LINK</button>
+    <button id="touch-btn-swap" class="touch-btn touch-btn-small">SWAP</button>
+    <button id="touch-btn-special" class="touch-btn">SPECIAL</button>
+    <button id="touch-btn-fire" class="touch-btn touch-btn-big">FIRE</button>
+  </div>
+  <button id="touch-btn-join">TAP TO JOIN / START</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ===========================================================================
+// CONFIG — every tunable number lives here. Edit this file alone for
+// balance/feel changes; it doesn't need any other module.
+// ===========================================================================
+const GAME = {};
+
+GAME.CONFIG = {
+  // Ship
+  shipColor: 0x5fd0ff,
+  shipVisualScale: 0.44,     // was 0.33 — bumped up ~1/3
+  shipEdgeMargin: 0.35,      // keeps the ship fully on-screen at play-area edges
+  shipStartXFraction: 0.14,  // 0 = far left edge, 1 = far right edge
+
+  // Plane-like movement: builds/loses speed instead of snapping to input.
+  // Dialed 1/4 of the way back toward the laggier/more-realistic values
+  // from before the big responsiveness pass, per feedback.
+  shipAcceleration: 22.75,
+  shipMaxSpeed: 5.5,
+  shipDrag: 4.55,
+
+  // Weapons — half speed, half fire rate from the previous pass so shots
+  // are trackable and dodgeable.
+  fireCooldown: 0.28,
+  bulletSpeed: 17,
+  bulletLife: 2.2,
+  bulletNoseOffset: 0.22,    // matches the new smaller ship's nose position
+
+  // Background
+  starCount: 1400,
+  starFieldWidth: 70,
+  scrollSpeed: 10,
+  nebulaCount: 5,
+  galaxyCount: 3,
+
+  maxHealth: 4,
+
+  // Pass 2: multiplayer join / lives / respawn
+  playerColors: [0x5fd0ff, 0xff6f6f, 0x7fff9e, 0xffd15f, 0xc98bff, 0xff9ecf, 0x6fe8ff, 0xffb37f],
+  startingLives: 4,
+  respawnBlinkDuration: 3.0,
+  respawnBlinkInterval: 0.12,
+
+  // Pass 3: enemies
+  enemySmallSpeed: 4.5,
+  enemyMediumSpeed: 3.2,
+  enemyEngageSpeed: 5.5,
+  enemySmallHealth: 1,
+  enemyMediumHealth: 3,
+  enemySmallScale: 0.6,
+  enemyMediumScale: 1.1,
+  enemySmallColor: 0xff4d4d,
+  enemyMediumColor: 0xffa64d,
+  enemySmallFireIntervalMin: 1.4,
+  enemySmallFireIntervalMax: 2.6,
+  enemyMediumFireInterval: 0.55,
+  enemyBulletSpeed: 6,
+  enemyBulletColor: 0xff2b2b,
+  threatBandY: 1.6,
+  mediumEngageDuration: 3.0,
+  spawnIntervalSmall: 1.8,
+  spawnIntervalMedium: 5.0,
+  scoreSmall: 10,
+  scoreMedium: 30,
+  playerHitRadius: 0.16,
+  enemyHitRadiusSmall: 0.22,
+  enemyHitRadiusMedium: 0.4,
+
+  // Pass 4: asteroid/debris hazards
+  hazardFieldInterval: 6.0,      // seconds between spawning a new cluster
+  hazardsPerField: 5,
+  hazardFieldSpreadY: 2.2,       // how tall each cluster is
+  hazardSpeed: 3.0,
+  hazardRotSpeedMax: 1.5,
+  hazardHitRadius: 0.4,
+  hazardMinScale: 0.35,
+  hazardMaxScale: 0.75,
+
+  // Pass 6: damage model + special weapons
+  pickupSpawnMin: 3.0,
+  pickupSpawnMax: 5.0,
+  pickupSpeed: 2.0,
+  pickupCollectRadius: 0.6,
+  pickupGrantFraction: 0.5,   // each pickup grants half of max ammo
+  laserMaxAmmo: 4,
+  nukeMaxAmmo: 4,
+  laserDuration: 2.0,
+  laserDps: 8,
+  laserHalfHeight: 0.28,
+  nukeSpeed: 7,
+  nukeTurnRate: 3.2,
+  nukeLife: 4.0,
+  nukeDamage: 40,
+  nukeBlastRadius: 2.4,
+
+  // Teleport
+  teleportMaxAmmo: 4,
+  teleportRippleRadius: 0.95, // ~4 ship-lengths wide
+  teleportXFraction: 0.1, // lands near the left edge, per the spec ("jumps far left")
+
+  // EMP
+  empMaxAmmo: 4,
+  empSpeed: 8,
+  empLife: 2.5,
+  empRadius: 0.5,       // ~2x the player ship's length
+  empBlastRadius: 3.2,  // ~14 ship-lengths wide (doubled per feedback)
+  empStunDuration: 3.0,
+  empHitsToStunSmall: 1,
+  empHitsToStunMedium: 2,
+
+  // Mines
+  mineMaxAmmo: 4,
+  mineArmDelay: 0.6,
+  mineTriggerRadius: 1.0,
+  mineChainRadius: 1.8,
+
+  // Reflector shield
+  shieldMaxAmmo: 4,
+  shieldDuration: 3.0,
+  shieldRadius: 0.5,       // reflect hit-test radius around the panel
+  shieldOffsetX: 0.5,      // how far in front of the ship the panel sits
+  shieldPanelHeight: 0.9,
+
+  // Ship connection / formation mechanic
+  connectRange: 1.3,                 // ~1 ship length — how close triggers the prompt
+  shipStackSpacing: 0.58,            // vertical gap between stacked ship centers (roughly one ship-height, so they touch rather than overlap)
+  formationSpeedPerExtraShip: 0.12,  // speed penalty per ship beyond the first
+  formationMinSpeedMultiplier: 0.35, // floor, so a big formation is slow but never stuck
+  formationPowerPerExtraShip: 0.15,  // weapon power bonus per ship beyond the first
+  formationPowerMaxMultiplier: 2.0,
+};
+
+
+
+// ===========================================================================
+// RENDERER — scene, camera, lighting, resize handling, and the dynamic
+// play-area bounds (raycast from the camera so movement always matches
+// the actual visible screen, whatever the aspect ratio).
+// ===========================================================================
+(function () {
+  const canvasHolder = document.getElementById("canvas-holder");
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
+  canvasHolder.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x05070c, 0.012);
+
+  const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
+  camera.position.set(0, 3.2, 15);
+  camera.lookAt(0, 0, 0);
+
+  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+  const boundsRaycaster = new THREE.Raycaster();
+  let playBounds = { minX: -10, maxX: 10, minY: -6, maxY: 6 };
+
+  function computePlayBounds() {
+    const ndcCorners = [
+      new THREE.Vector2(-1, -1), new THREE.Vector2(1, -1),
+      new THREE.Vector2(1, 1), new THREE.Vector2(-1, 1),
+    ];
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    const hit = new THREE.Vector3();
+    for (const ndc of ndcCorners) {
+      boundsRaycaster.setFromCamera(ndc, camera);
+      if (boundsRaycaster.ray.intersectPlane(groundPlane, hit)) {
+        minX = Math.min(minX, hit.x); maxX = Math.max(maxX, hit.x);
+        minY = Math.min(minY, hit.y); maxY = Math.max(maxY, hit.y);
+      }
+    }
+    const m = GAME.CONFIG.shipEdgeMargin;
+    playBounds = { minX: minX + m, maxX: maxX - m, minY: minY + m, maxY: maxY - m };
+  }
+
+  function onResize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    computePlayBounds();
+  }
+  window.addEventListener("resize", onResize);
+  onResize();
+
+  // Lighting rig — tuned for readable ships against deep space.
+  scene.add(new THREE.HemisphereLight(0x3a5aff, 0x05050a, 0.55));
+
+  const keyLight = new THREE.DirectionalLight(0xaecbff, 1.4);
+  keyLight.position.set(6, 8, 10);
+  scene.add(keyLight);
+
+  const rimLight = new THREE.PointLight(0x5fd0ff, 2.2, 40, 2);
+  rimLight.position.set(-10, 2, 6);
+  scene.add(rimLight);
+
+  const fillLight = new THREE.PointLight(0xff7a5f, 0.6, 30, 2);
+  fillLight.position.set(4, -6, -4);
+  scene.add(fillLight);
+
+  GAME.renderer = renderer;
+  GAME.scene = scene;
+  GAME.camera = camera;
+  GAME.getPlayBounds = () => playBounds;
+})();
+
+
+// ===========================================================================
+// BACKGROUND — layered starfield (two depths for parallax) plus soft
+// nebula/galaxy billboards and star clusters, all scrolling right-to-left
+// as whole units so shapes don't distort as they wrap around.
+// ===========================================================================
+(function () {
+  const scene = GAME.scene;
+  const CONFIG = GAME.CONFIG;
+
+  // --- Starfield: two point layers, far/slow and near/fast -----------------
+  function makeStarLayer(count, depthZ, size, color, speedMultiplier) {
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      positions[i * 3 + 0] = (Math.random() - 0.5) * CONFIG.starFieldWidth;
+      positions[i * 3 + 1] = (Math.random() - 0.5) * 50;
+      positions[i * 3 + 2] = depthZ + (Math.random() - 0.5) * 4;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    const mat = new THREE.PointsMaterial({
+      color, size, sizeAttenuation: true, transparent: true, opacity: 0.9,
+    });
+    const points = new THREE.Points(geo, mat);
+    points.userData.speedMultiplier = speedMultiplier;
+    scene.add(points);
+    return points;
+  }
+
+  const starLayers = [
+    makeStarLayer(CONFIG.starCount, -18, 0.08, 0x8fa6c8, 0.5),
+    makeStarLayer(Math.floor(CONFIG.starCount * 0.5), -6, 0.13, 0xffffff, 1.0),
+  ];
+
+  // Dimmer stars so bright colored bullets stay easy to pick out.
+  starLayers[0].material.opacity = 0.4;
+  starLayers[1].material.opacity = 0.55;
+  starLayers[1].material.size = 0.1;
+
+  // --- Soft radial-gradient texture, reused for nebulae/galaxies -----------
+  function makeGlowTexture(colorStops) {
+    const size = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    for (const stop of colorStops) grad.addColorStop(stop.at, stop.color);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  const nebulaTexture = makeGlowTexture([
+    { at: 0.0, color: "rgba(140,110,255,0.55)" },
+    { at: 0.5, color: "rgba(90,60,200,0.22)" },
+    { at: 1.0, color: "rgba(90,60,200,0)" },
+  ]);
+  const galaxyTexture = makeGlowTexture([
+    { at: 0.0, color: "rgba(255,235,200,0.7)" },
+    { at: 0.35, color: "rgba(255,200,150,0.3)" },
+    { at: 1.0, color: "rgba(255,200,150,0)" },
+  ]);
+
+  function makeClusteredGlow(texture, z, baseScale, speedMultiplier, squashY, starColor, starCount) {
+    const group = new THREE.Group();
+
+    const spriteMat = new THREE.SpriteMaterial({
+      map: texture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const sprite = new THREE.Sprite(spriteMat);
+    const scale = baseScale * (0.7 + Math.random() * 0.6);
+    sprite.scale.set(scale, scale * (squashY || 1), 1);
+    group.add(sprite);
+
+    // Embed a tight cluster of bright points inside/around the glow so it
+    // reads as "a galaxy with visible stars," not two unrelated effects.
+    const radius = scale * 0.35;
+    const positions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const r = Math.random() * radius;
+      const angle = Math.random() * Math.PI * 2;
+      positions[i * 3 + 0] = Math.cos(angle) * r;
+      positions[i * 3 + 1] = Math.sin(angle) * r * (squashY || 1);
+      positions[i * 3 + 2] = (Math.random() - 0.5) * 1.5;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    const starMat = new THREE.PointsMaterial({
+      color: starColor, size: 0.15, sizeAttenuation: true, transparent: true, opacity: 0.95,
+    });
+    group.add(new THREE.Points(geo, starMat));
+
+    group.position.set(
+      (Math.random() - 0.5) * CONFIG.starFieldWidth,
+      (Math.random() - 0.5) * 40,
+      z
+    );
+    group.userData.speedMultiplier = speedMultiplier;
+    scene.add(group);
+    wrappingObjects.push(group);
+  }
+
+  const wrappingObjects = [];
+
+  for (let i = 0; i < CONFIG.nebulaCount; i++) {
+    makeClusteredGlow(nebulaTexture, -35 - Math.random() * 10, 14, 0.25, 0.6, 0xd8c8ff, 22);
+  }
+  for (let i = 0; i < CONFIG.galaxyCount; i++) {
+    makeClusteredGlow(galaxyTexture, -40 - Math.random() * 10, 8, 0.3, 0.35, 0xfff0d8, 30);
+  }
+
+  function updateBackground(dt) {
+    const halfWidth = CONFIG.starFieldWidth / 2;
+
+    for (const layer of starLayers) {
+      const pos = layer.geometry.attributes.position;
+      const speed = CONFIG.scrollSpeed * layer.userData.speedMultiplier * dt;
+      for (let i = 0; i < pos.count; i++) {
+        let x = pos.getX(i) - speed;
+        if (x < -halfWidth) x += CONFIG.starFieldWidth;
+        pos.setX(i, x);
+      }
+      pos.needsUpdate = true;
+    }
+
+    for (const obj of wrappingObjects) {
+      obj.position.x -= CONFIG.scrollSpeed * obj.userData.speedMultiplier * dt;
+      if (obj.position.x < -halfWidth - 10) {
+        obj.position.x += CONFIG.starFieldWidth + 20;
+        obj.position.y = (Math.random() - 0.5) * 40;
+      }
+    }
+  }
+
+  GAME.updateBackground = updateBackground;
+})();
+
+
+// ===========================================================================
+// SHIP — a smooth lathed hull (rotationally-extruded profile) reads far
+// more three-dimensional under lighting than flat boxes/cones did. Nose
+// points toward +X (the direction the background scrolls away from).
+// Swap buildShip() for a GLTFLoader call later if you want to import a
+// modeled ship instead of this primitive-built one.
+// ===========================================================================
+(function () {
+  function makeHullGeometry() {
+    // Profile: (radius, position-along-axis) from tail to nose tip.
+    const profile = [
+      new THREE.Vector2(0.05, -0.50),
+      new THREE.Vector2(0.17, -0.35),
+      new THREE.Vector2(0.22, -0.10),
+      new THREE.Vector2(0.20, 0.15),
+      new THREE.Vector2(0.12, 0.35),
+      new THREE.Vector2(0.00, 0.55),
+    ];
+    return new THREE.LatheGeometry(profile, 14);
+  }
+
+  function makeWingShape() {
+    // Sharp swept delta wing: a single pointed apex at the tip instead of
+    // a blunt edge, which is what read as "weird" before.
+    const shape = new THREE.Shape();
+    shape.moveTo(0.05, 0.15);
+    shape.lineTo(-0.85, 0.55); // pointed tip
+    shape.lineTo(-0.55, 0.42);
+    shape.lineTo(-0.15, 0.16);
+    shape.lineTo(0.05, 0.15);
+    return shape;
+  }
+
+  function makeThruster(length, radius, color) {
+    const geo = new THREE.ConeGeometry(radius, length, 10, 1, true);
+    geo.translate(0, -length / 2, 0); // apex at origin, cone trails away from it
+    geo.rotateZ(-Math.PI / 2);        // point along -X (backward, away from the nose)
+    const mat = new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.85,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    return new THREE.Mesh(geo, mat);
+  }
+
+  function makeShipGlowTexture(colorHex) {
+    const r = (colorHex >> 16) & 255, g = (colorHex >> 8) & 255, b = colorHex & 255;
+    const size = 128;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    grad.addColorStop(0, `rgba(${r},${g},${b},0.45)`);
+    grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  function buildShip(color) {
+    const group = new THREE.Group();
+
+    // Soft glow behind the ship, tinted to the player's color, so the ship
+    // stays easy to spot against a busy background.
+    const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: makeShipGlowTexture(color), transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    glowSprite.scale.set(2.6, 2.0, 1);
+    glowSprite.position.set(-0.1, 0, -0.15);
+    group.add(glowSprite);
+
+    const hullMat = new THREE.MeshStandardMaterial({
+      color, metalness: 0.55, roughness: 0.32, emissive: color, emissiveIntensity: 0.08,
+    });
+    const bellyMat = new THREE.MeshStandardMaterial({
+      color: 0x11151f, metalness: 0.5, roughness: 0.5,
+    });
+    const canopyMat = new THREE.MeshStandardMaterial({
+      color: 0xbdf3ff, metalness: 0.1, roughness: 0.12,
+      emissive: 0x8fe8ff, emissiveIntensity: 0.85,
+    });
+    const wingMat = new THREE.MeshStandardMaterial({
+      color, metalness: 0.6, roughness: 0.35, emissive: color, emissiveIntensity: 0.1,
+      flatShading: true,
+    });
+
+    // Smooth rounded hull, laid along +X (rotation.z maps the lathe's local
+    // +Y axis, its length axis, onto world +X).
+    const hull = new THREE.Mesh(makeHullGeometry(), hullMat);
+    hull.rotation.z = -Math.PI / 2;
+    group.add(hull);
+
+    // Dark flattened belly plate underneath for shading contrast/depth.
+    const belly = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.05, 0.22), bellyMat);
+    belly.position.set(-0.05, -0.14, 0);
+    group.add(belly);
+
+    // Low, integrated canopy (half-dome, flattened) instead of a ball on top.
+    const canopy = new THREE.Mesh(
+      new THREE.SphereGeometry(0.16, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+      canopyMat
+    );
+    canopy.position.set(0.08, 0.13, 0);
+    canopy.scale.set(1.5, 0.4, 0.6);
+    group.add(canopy);
+
+    // Wings, mirrored top/bottom (screen-plane spread, not depth spread).
+    const wingGeo = new THREE.ExtrudeGeometry(makeWingShape(), { depth: 0.05, bevelEnabled: false });
+    wingGeo.translate(0, 0, -0.025);
+    const wingTop = new THREE.Mesh(wingGeo, wingMat);
+    const wingBottom = wingTop.clone();
+    wingBottom.scale.y = -1;
+    group.add(wingTop, wingBottom);
+
+    // Thruster jets: one at the rear, one at each wing root. Scaled/faded
+    // each frame by updateShipVisual() based on current speed.
+    const rearJet = makeThruster(2.5, 0.45, 0xff9a4d);
+    rearJet.position.set(-0.52, 0, 0);
+    const wingJetTop = makeThruster(1.6, 0.275, 0x7fd0ff);
+    wingJetTop.position.set(-0.28, 0.2, 0);
+    const wingJetBottom = wingJetTop.clone();
+    wingJetBottom.position.y = -0.2;
+    group.add(rearJet, wingJetTop, wingJetBottom);
+
+    group.scale.setScalar(GAME.CONFIG.shipVisualScale);
+
+    return {
+      mesh: group,
+      glowSprite,
+      materials: [hullMat, wingMat],
+      thrusters: [rearJet, wingJetTop, wingJetBottom],
+      baseThrusterScale: [
+        rearJet.scale.clone(), wingJetTop.scale.clone(), wingJetBottom.scale.clone(),
+      ],
+    };
+  }
+
+  // Animates thruster length/opacity from 0 (idle) to 1 (full throttle),
+  // plus a little flicker so it doesn't look static.
+  function updateShipVisual(ship, throttle01, dt) {
+    ship.flickerT = (ship.flickerT || 0) + dt * 14;
+    const flicker = 0.9 + Math.sin(ship.flickerT) * 0.1;
+    const targetLen = 0.3 + throttle01 * 1.1;
+    for (let i = 0; i < ship.thrusters.length; i++) {
+      const jet = ship.thrusters[i];
+      const base = ship.baseThrusterScale[i];
+      jet.scale.set(base.x * flicker, base.y * (targetLen) * flicker, base.z * flicker);
+      jet.material.opacity = 0.35 + throttle01 * 0.5;
+    }
+  }
+
+  GAME.buildShip = buildShip;
+  GAME.updateShipVisual = updateShipVisual;
+})();
+
+
+// ===========================================================================
+// BULLETS — pooled-free projectiles drawn as stretched, player-colored
+// streaks (a white-hot core plus a tinted glow) so they read differently
+// from the round star dots behind them and show who fired them. No
+// per-bullet real-time lights (those caused the original first-shot stutter).
+//
+// Also home of the shared collision helpers: bullets move fast, so hit tests
+// check the path a bullet travelled this frame (prev -> current position)
+// rather than just its end point, and work on the screen plane only.
+// ===========================================================================
+(function () {
+  const scene = GAME.scene;
+
+  function segCircle(ax, ay, bx, by, cx, cy, r) {
+    const dx = bx - ax, dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    let t = lenSq > 0 ? ((cx - ax) * dx + (cy - ay) * dy) / lenSq : 0;
+    t = Math.max(0, Math.min(1, t));
+    const px = ax + dx * t - cx, py = ay + dy * t - cy;
+    return px * px + py * py <= r * r;
+  }
+  function dist2D(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+  GAME.Collision = { segCircle, dist2D };
+
+  const bulletGeo = new THREE.SphereGeometry(0.05, 8, 6);
+  bulletGeo.scale(3.2, 1, 1); // stretched into a streak
+
+  function makeGlowTexture() {
+    const size = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    grad.addColorStop(0, "rgba(255,255,255,0.95)");
+    grad.addColorStop(0.45, "rgba(255,255,255,0.4)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    return new THREE.CanvasTexture(canvas);
+  }
+  const glowTexture = makeGlowTexture();
+
+  const styleCache = new Map();
+  function getStyle(color) {
+    if (!styleCache.has(color)) {
+      const core = new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.65);
+      styleCache.set(color, {
+        coreMat: new THREE.MeshBasicMaterial({ color: core }),
+        glowMat: new THREE.SpriteMaterial({
+          map: glowTexture, color, transparent: true,
+          blending: THREE.AdditiveBlending, depthWrite: false,
+        }),
+      });
+    }
+    return styleCache.get(color);
+  }
+
+  const bullets = [];
+
+  function fireBullet(originX, originY, color, dirX, dirY) {
+    const style = getStyle(color === undefined ? 0x9fe8ff : color);
+    const mesh = new THREE.Mesh(bulletGeo, style.coreMat);
+    const x = originX + GAME.CONFIG.bulletNoseOffset;
+    mesh.position.set(x, originY, 0);
+
+    let dx = dirX === undefined ? 1 : dirX;
+    let dy = dirY === undefined ? 0 : dirY;
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len; dy /= len;
+    mesh.rotation.z = Math.atan2(dy, dx);
+
+    const glow = new THREE.Sprite(style.glowMat);
+    glow.scale.set(1.0, 0.42, 1);
+    mesh.add(glow);
+
+    scene.add(mesh);
+    bullets.push({ mesh, life: GAME.CONFIG.bulletLife, prev: { x, y: originY }, dir: { x: dx, y: dy } });
+  }
+
+  function updateBullets(dt) {
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      b.prev.x = b.mesh.position.x;
+      b.prev.y = b.mesh.position.y;
+      b.mesh.position.x += b.dir.x * GAME.CONFIG.bulletSpeed * dt;
+      b.mesh.position.y += b.dir.y * GAME.CONFIG.bulletSpeed * dt;
+      b.life -= dt;
+      if (b.life <= 0 || Math.abs(b.mesh.position.x) > 30 || Math.abs(b.mesh.position.y) > 20) {
+        scene.remove(b.mesh);
+        bullets.splice(i, 1);
+      }
+    }
+  }
+
+  function removeBullet(bulletObj) {
+    const idx = bullets.indexOf(bulletObj);
+    if (idx !== -1) {
+      scene.remove(bulletObj.mesh);
+      bullets.splice(idx, 1);
+    }
+  }
+
+  // Fire one throwaway bullet off-screen at load time and force a compile
+  // pass, so the real first shot doesn't stutter.
+  function prewarm() {
+    fireBullet(-1000, -1000, 0xffffff);
+    GAME.renderer.compile(scene, GAME.camera);
+    updateBullets(GAME.CONFIG.bulletLife + 1);
+  }
+
+  GAME.fireBullet = fireBullet;
+  GAME.updateBullets = updateBullets;
+  GAME.prewarmBullets = prewarm;
+  GAME.getBullets = () => bullets;
+  GAME.removeBullet = removeBullet;
+})();
+
+
+// ===========================================================================
+// EFFECTS — sparks (small impact bursts) and explosions (bigger burst plus
+// an expanding glow). Each effect is a short-lived THREE.Points cloud with
+// per-particle velocities; no real-time lights (those caused the earlier
+// shader-recompile stutter), just additive-blended points and one sprite.
+// ===========================================================================
+(function () {
+  const scene = GAME.scene;
+  let active = [];
+
+  function makeGlowTexture() {
+    const size = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    grad.addColorStop(0, "rgba(255,255,255,1)");
+    grad.addColorStop(0.4, "rgba(255,255,255,0.5)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    return new THREE.CanvasTexture(canvas);
+  }
+  const glowTexture = makeGlowTexture();
+
+  function burst(position, color, count, speed, life, size, withFlash, flashScale) {
+    const positions = new Float32Array(count * 3);
+    const velocities = [];
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = position.x;
+      positions[i * 3 + 1] = position.y;
+      positions[i * 3 + 2] = position.z;
+      const angle = Math.random() * Math.PI * 2;
+      const s = speed * (0.3 + Math.random() * 0.7);
+      velocities.push(new THREE.Vector3(Math.cos(angle) * s, Math.sin(angle) * s, (Math.random() - 0.5) * s * 0.3));
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    const mat = new THREE.PointsMaterial({
+      color, size, transparent: true, opacity: 1,
+      blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+    });
+    const points = new THREE.Points(geo, mat);
+    scene.add(points);
+
+    let flash = null;
+    if (withFlash) {
+      flash = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTexture, color, transparent: true, opacity: 0.9,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }));
+      flash.position.copy(position);
+      flash.scale.setScalar(0.2);
+      scene.add(flash);
+    }
+
+    active.push({ points, velocities, life, maxLife: life, flash, flashScale: flashScale || 1 });
+  }
+
+  // Small impact: a handful of quick sparks.
+  function spark(position, color) {
+    burst(position, color === undefined ? 0xffe9a8 : color, 10, 3.2, 0.35, 0.09, false);
+  }
+
+  // Bigger destruction: dense burst plus an expanding flash. `scale` lets
+  // small asteroids/enemies pop smaller than a player ship going down.
+  function explode(position, color, scale) {
+    const s = scale || 1;
+    burst(position, color === undefined ? 0xff9a4d : color, Math.floor(34 * s), 4.5 * s, 0.75, 0.14, true, 1.8 * s);
+    burst(position, 0xffe9a8, Math.floor(14 * s), 2.2 * s, 0.5, 0.1, false);
+  }
+
+  function update(dt) {
+    for (let i = active.length - 1; i >= 0; i--) {
+      const fx = active[i];
+      fx.life -= dt;
+      const t = Math.max(0, fx.life / fx.maxLife);
+      const pos = fx.points.geometry.attributes.position;
+      for (let p = 0; p < fx.velocities.length; p++) {
+        const v = fx.velocities[p];
+        pos.setXYZ(p, pos.getX(p) + v.x * dt, pos.getY(p) + v.y * dt, pos.getZ(p) + v.z * dt);
+      }
+      pos.needsUpdate = true;
+      fx.points.material.opacity = t;
+      if (fx.flash) {
+        fx.flash.scale.setScalar(0.2 + (1 - t) * fx.flashScale);
+        fx.flash.material.opacity = t * 0.9;
+      }
+      if (fx.life <= 0) {
+        scene.remove(fx.points);
+        fx.points.geometry.dispose();
+        fx.points.material.dispose();
+        if (fx.flash) { scene.remove(fx.flash); fx.flash.material.dispose(); }
+        active.splice(i, 1);
+      }
+    }
+  }
+
+  function clear() {
+    for (const fx of active) {
+      scene.remove(fx.points);
+      if (fx.flash) scene.remove(fx.flash);
+    }
+    active = [];
+  }
+
+  GAME.Effects = { spark, explode, update, clear };
+})();
+
+
+// ===========================================================================
+// AUDIO — every sound is synthesized on the fly with the Web Audio API, so
+// there are no audio files to host. Browsers only allow audio after a user
+// interaction, so the context is created/resumed on the first key press or
+// gamepad button. Keep volumes low: shots fire a lot.
+// ===========================================================================
+(function () {
+  let ctx = null;
+  let master = null;
+  let noiseBuffer = null;
+  const MASTER_VOLUME = 0.35;
+
+  function ensureContext() {
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return false;
+      ctx = new AC();
+      master = ctx.createGain();
+      master.gain.value = MASTER_VOLUME;
+      master.connect(ctx.destination);
+
+      // One second of white noise, reused for explosions/impacts.
+      noiseBuffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    }
+    if (ctx.state === "suspended") ctx.resume();
+    return true;
+  }
+
+  // Unlock audio on the first real user interaction.
+  const unlock = () => ensureContext();
+  window.addEventListener("keydown", unlock);
+  window.addEventListener("pointerdown", unlock);
+  window.addEventListener("gamepadconnected", unlock);
+
+  // Sweeping tone with a fast decay envelope — the basis of the blaster sounds.
+  function sweep(type, freqStart, freqEnd, duration, volume) {
+    if (!ensureContext()) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freqStart, now);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20, freqEnd), now + duration);
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(now);
+    osc.stop(now + duration + 0.02);
+  }
+
+  function noise(duration, volume, filterFreq) {
+    if (!ensureContext()) return;
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(filterFreq, now);
+    filter.frequency.exponentialRampToValueAtTime(80, now + duration);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(master);
+    src.start(now);
+    src.stop(now + duration + 0.02);
+  }
+
+  // Player: quick clean downward "pew". Slightly randomized so rapid fire
+  // doesn't sound like one repeated sample.
+  // Plasma-pistol style: a bubbly, warbling downward "bwoop" (triangle wave
+  // with fast vibrato) plus a tiny crackle.
+  function playerShot() {
+    if (!ensureContext()) return;
+    const now = ctx.currentTime;
+    const jitter = 1 + (Math.random() - 0.5) * 0.1;
+    const osc = ctx.createOscillator();
+    const vib = ctx.createOscillator();
+    const vibGain = ctx.createGain();
+    const gain = ctx.createGain();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(760 * jitter, now);
+    osc.frequency.exponentialRampToValueAtTime(240 * jitter, now + 0.16);
+    vib.frequency.value = 55;
+    vibGain.gain.value = 70;
+    vib.connect(vibGain);
+    vibGain.connect(osc.frequency);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.06, now + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.17);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(now); vib.start(now);
+    osc.stop(now + 0.19); vib.stop(now + 0.19);
+    noise(0.04, 0.02, 5000);
+  }
+
+  function pickup() {
+    sweep("sine", 660, 660, 0.09, 0.07);
+    setTimeout(() => sweep("sine", 990, 990, 0.14, 0.07), 80);
+  }
+
+  function laserBeam(duration) {
+    if (!ensureContext()) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(95, now);
+    lfo.frequency.value = 18;
+    lfoGain.gain.value = 25;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    filter.type = "lowpass";
+    filter.frequency.value = 900;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.08);
+    gain.gain.setValueAtTime(0.08, now + duration - 0.2);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    osc.connect(filter); filter.connect(gain); gain.connect(master);
+    osc.start(now); lfo.start(now);
+    osc.stop(now + duration + 0.02); lfo.stop(now + duration + 0.02);
+  }
+
+  function nukeLaunch() {
+    noise(0.45, 0.1, 1400);
+    sweep("sawtooth", 220, 60, 0.5, 0.06);
+  }
+
+  function teleport() {
+    sweep("sine", 200, 1400, 0.28, 0.08);
+    sweep("sine", 1400, 200, 0.32, 0.05);
+  }
+
+  function empLaunch() {
+    sweep("square", 500, 900, 0.12, 0.05);
+  }
+
+  function empZap() {
+    noise(0.2, 0.12, 4000);
+    sweep("square", 1200, 200, 0.15, 0.06);
+  }
+
+  function mineArm() {
+    sweep("sine", 500, 500, 0.07, 0.04);
+    setTimeout(() => {
+      sweep("square", 1800, 1800, 0.015, 0.05);
+    }, 140);
+  }
+
+  function shieldUp() {
+    sweep("sine", 300, 900, 0.35, 0.07);
+  }
+
+  function shieldDown() {
+    sweep("sine", 900, 300, 0.25, 0.05);
+  }
+
+  // Enemy: lower, wobblier "alien" tone — sawtooth with a rising then
+  // falling pitch, so it reads as clearly different from the player's shot.
+  function enemyShot() {
+    if (!ensureContext()) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    const gain = ctx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(220, now);
+    osc.frequency.exponentialRampToValueAtTime(140, now + 0.25);
+    lfo.frequency.value = 28;
+    lfoGain.gain.value = 40;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    gain.gain.setValueAtTime(0.045, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(now); lfo.start(now);
+    osc.stop(now + 0.27); lfo.stop(now + 0.27);
+  }
+
+  function impact() {
+    sweep("triangle", 300, 90, 0.09, 0.09);
+    noise(0.07, 0.05, 3000);
+  }
+
+  function explosion(big) {
+    noise(big ? 0.7 : 0.4, big ? 0.28 : 0.18, big ? 2200 : 1600);
+    sweep("sawtooth", big ? 140 : 180, 30, big ? 0.6 : 0.35, big ? 0.12 : 0.08);
+  }
+
+  GAME.Audio = { playerShot, enemyShot, impact, explosion, pickup, laserBeam, nukeLaunch, teleport, empLaunch, empZap, mineArm, shieldUp, shieldDown };
+})();
+
+
+// ===========================================================================
+// INPUT — now generalized for multiple sources: "keyboard" and each
+// connected gamepad by index. Movement/fire are read continuously; the
+// join button is read as an edge (true only on the frame it's first
+// pressed) so holding it doesn't join five times in a row.
+// ===========================================================================
+(function () {
+  // Shared state written by mobile.js's on-screen joystick/buttons. Reading
+  // "touch" as a source works the same way as "keyboard" or a gamepad index.
+  GAME.TouchState = { x: 0, y: 0, fire: false, special: false, join: false, swap: false, connect: false };
+
+  const keys = Object.create(null);
+  window.addEventListener("keydown", (e) => {
+    if (e.code === "AltLeft" || e.code === "AltRight") e.preventDefault(); // stop browser menu-focus
+    keys[e.code] = true;
+  });
+  window.addEventListener("keyup", (e) => { keys[e.code] = false; });
+
+  // Right mouse button (or E) = special weapon on keyboard.
+  window.addEventListener("mousedown", (e) => { if (e.button === 2) keys["MouseRight"] = true; });
+  window.addEventListener("mouseup", (e) => { if (e.button === 2) keys["MouseRight"] = false; });
+  window.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  const gamepadStatusEl = document.getElementById("gamepad-status");
+  function refreshGamepadStatus() {
+    const pads = (navigator.getGamepads ? navigator.getGamepads() : []) || [];
+    const count = Array.from(pads).filter(Boolean).length;
+    if (count > 0) {
+      gamepadStatusEl.textContent = count + " gamepad" + (count > 1 ? "s" : "") + " connected";
+      gamepadStatusEl.classList.add("connected");
+    } else {
+      gamepadStatusEl.textContent = "No gamepad detected — keyboard: Enter to join";
+      gamepadStatusEl.classList.remove("connected");
+    }
+  }
+  window.addEventListener("gamepadconnected", refreshGamepadStatus);
+  window.addEventListener("gamepaddisconnected", refreshGamepadStatus);
+  refreshGamepadStatus();
+
+  function connectedGamepadIndices() {
+    const pads = (navigator.getGamepads ? navigator.getGamepads() : []) || [];
+    const out = [];
+    for (let i = 0; i < pads.length; i++) if (pads[i]) out.push(i);
+    return out;
+  }
+
+  // source is either the string "keyboard" or a gamepad index (number)
+  function getMovement(source) {
+    let x = 0, y = 0;
+    if (source === "keyboard") {
+      // WASD only now — arrow keys are dedicated to steering the mini-nuke.
+      if (keys["KeyA"]) x -= 1;
+      if (keys["KeyD"]) x += 1;
+      if (keys["KeyW"]) y += 1;
+      if (keys["KeyS"]) y -= 1;
+    } else if (source === "touch") {
+      x = GAME.TouchState.x; y = GAME.TouchState.y;
+    } else {
+      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+      const pad = pads && pads[source];
+      if (pad) {
+        const deadzone = 0.15;
+        const lx = pad.axes[0] || 0;
+        const ly = pad.axes[1] || 0;
+        if (Math.abs(lx) > deadzone) x = lx;
+        if (Math.abs(ly) > deadzone) y = -ly;
+      }
+    }
+    const len = Math.hypot(x, y);
+    if (len > 1) { x /= len; y /= len; }
+    return { x, y };
+  }
+
+  function isFireHeld(source) {
+    if (source === "keyboard") return !!keys["Space"];
+    if (source === "touch") return !!GAME.TouchState.fire;
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const pad = pads && pads[source];
+    if (!pad) return false;
+    const rt = pad.buttons[7];
+    return !!(rt && (rt.pressed || rt.value > 0.3));
+  }
+
+  function isJoinHeldRaw(source) {
+    if (source === "keyboard") return !!keys["Enter"];
+    if (source === "touch") return !!GAME.TouchState.join;
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const pad = pads && pads[source];
+    return !!(pad && pad.buttons[0] && pad.buttons[0].pressed);
+  }
+
+  const prevJoinState = Object.create(null);
+  function isJoinPressedEdge(source) {
+    const held = isJoinHeldRaw(source);
+    const was = !!prevJoinState[source];
+    prevJoinState[source] = held;
+    return held && !was;
+  }
+
+  const prevKeyState = Object.create(null);
+  function isKeyPressedEdge(code) {
+    const held = !!keys[code];
+    const was = !!prevKeyState[code];
+    prevKeyState[code] = held;
+    return held && !was;
+  }
+
+  // Steers the mini-nuke in flight: arrow keys on keyboard, right stick on
+  // gamepad (keyboard has no analog stick, so this is just a fixed direction).
+  function getAim(source) {
+    if (source === "keyboard") {
+      let x = 0, y = 0;
+      if (keys["ArrowLeft"]) x -= 1;
+      if (keys["ArrowRight"]) x += 1;
+      if (keys["ArrowUp"]) y += 1;
+      if (keys["ArrowDown"]) y -= 1;
+      const len = Math.hypot(x, y);
+      return len > 0 ? { x: x / len, y: y / len } : { x: 0, y: 0 };
+    }
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const pad = pads && pads[source];
+    if (!pad) return { x: 0, y: 0 };
+    const dz = 0.25;
+    const ax = pad.axes[2] || 0, ay = pad.axes[3] || 0;
+    return { x: Math.abs(ax) > dz ? ax : 0, y: Math.abs(ay) > dz ? -ay : 0 };
+  }
+
+  function isSpecialHeldRaw(source) {
+    if (source === "keyboard") return !!(keys["AltLeft"] || keys["AltRight"] || keys["MouseRight"]);
+    if (source === "touch") return !!GAME.TouchState.special;
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const pad = pads && pads[source];
+    const lt = pad && pad.buttons[6]; // left trigger, standard mapping
+    return !!(lt && (lt.pressed || lt.value > 0.4));
+  }
+  const prevSpecialState = Object.create(null);
+  function isSpecialPressedEdge(source) {
+    const held = isSpecialHeldRaw(source);
+    const was = !!prevSpecialState[source];
+    prevSpecialState[source] = held;
+    return held && !was;
+  }
+
+  // Swap the two special-weapon slots. Keyboard: Q. Gamepad: X (button 2,
+  // standard mapping) — this wasn't assigned in the original control list,
+  // so it's my pick; easy to move if you'd rather use a different button.
+  function isSwapHeldRaw(source) {
+    if (source === "keyboard") return !!keys["KeyQ"];
+    if (source === "touch") return !!GAME.TouchState.swap;
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const pad = pads && pads[source];
+    return !!(pad && pad.buttons[2] && pad.buttons[2].pressed);
+  }
+  const prevSwapState = Object.create(null);
+  function isSwapPressedEdge(source) {
+    const held = isSwapHeldRaw(source);
+    const was = !!prevSwapState[source];
+    prevSwapState[source] = held;
+    return held && !was;
+  }
+
+  // Connect/disengage from another ship: E on keyboard (deliberately not
+  // Enter/join), A on gamepad (same physical button as join — safe to
+  // reuse since join is already consumed once a player has joined), and a
+  // dedicated on-screen button on touch.
+  function isConnectHeldRaw(source) {
+    if (source === "keyboard") return !!keys["KeyE"];
+    if (source === "touch") return !!GAME.TouchState.connect;
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const pad = pads && pads[source];
+    return !!(pad && pad.buttons[0] && pad.buttons[0].pressed);
+  }
+  const prevConnectState = Object.create(null);
+  function isConnectPressedEdge(source) {
+    const held = isConnectHeldRaw(source);
+    const was = !!prevConnectState[source];
+    prevConnectState[source] = held;
+    return held && !was;
+  }
+
+  // Pause is global (any player can pause co-op play) — Escape on keyboard,
+  // Start/Options (button 9, standard mapping) on any gamepad.
+  let prevPauseHeld = false;
+  function isPausePressedEdge() {
+    let held = !!keys["Escape"];
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (const pad of pads || []) {
+      if (pad && pad.buttons[9] && pad.buttons[9].pressed) held = true;
+    }
+    const edge = held && !prevPauseHeld;
+    prevPauseHeld = held;
+    return edge;
+  }
+
+  GAME.Input = {
+    getMovement, isFireHeld, isJoinPressedEdge, connectedGamepadIndices, isKeyPressedEdge,
+    getAim, isSpecialPressedEdge, isSwapPressedEdge, isConnectPressedEdge, isPausePressedEdge,
+  };
+})();
+
+
+// ===========================================================================
+// MOBILE — on-screen joystick + buttons for touch devices. Only visible via
+// the @media (pointer: coarse) rule in the CSS, but the wiring here is
+// harmless either way. Everything just writes into GAME.TouchState, which
+// input.js already reads as the "touch" source.
+// ===========================================================================
+(function () {
+  const base = document.getElementById("touch-joystick-base");
+  const nub = document.getElementById("touch-joystick-nub");
+  const maxRadius = 46;
+  let stickPointerId = null;
+  let baseRect = null;
+
+  function setStick(dx, dy) {
+    const dist = Math.hypot(dx, dy);
+    const clamped = Math.min(dist, maxRadius);
+    const angle = Math.atan2(dy, dx);
+    const nx = Math.cos(angle) * clamped;
+    const ny = Math.sin(angle) * clamped;
+    nub.style.transform = `translate(${nx}px, ${ny}px)`;
+    GAME.TouchState.x = clamped > 4 ? Math.cos(angle) * (clamped / maxRadius) : 0;
+    GAME.TouchState.y = clamped > 4 ? -Math.sin(angle) * (clamped / maxRadius) : 0;
+  }
+
+  base.addEventListener("pointerdown", (e) => {
+    stickPointerId = e.pointerId;
+    baseRect = base.getBoundingClientRect();
+    base.setPointerCapture(e.pointerId);
+    setStick(e.clientX - (baseRect.left + baseRect.width / 2), e.clientY - (baseRect.top + baseRect.height / 2));
+  });
+  base.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== stickPointerId || !baseRect) return;
+    setStick(e.clientX - (baseRect.left + baseRect.width / 2), e.clientY - (baseRect.top + baseRect.height / 2));
+  });
+  function releaseStick(e) {
+    if (e.pointerId !== stickPointerId) return;
+    stickPointerId = null;
+    nub.style.transform = "translate(0px, 0px)";
+    GAME.TouchState.x = 0; GAME.TouchState.y = 0;
+  }
+  base.addEventListener("pointerup", releaseStick);
+  base.addEventListener("pointercancel", releaseStick);
+
+  function bindHoldButton(id, stateKey) {
+    const el = document.getElementById(id);
+    el.addEventListener("pointerdown", (e) => { e.preventDefault(); GAME.TouchState[stateKey] = true; });
+    el.addEventListener("pointerup", () => { GAME.TouchState[stateKey] = false; });
+    el.addEventListener("pointercancel", () => { GAME.TouchState[stateKey] = false; });
+    el.addEventListener("pointerleave", () => { GAME.TouchState[stateKey] = false; });
+  }
+  bindHoldButton("touch-btn-fire", "fire");
+  bindHoldButton("touch-btn-special", "special");
+
+  // Swap/join are edge-triggered elsewhere, so a quick tap-pulse is enough.
+  function bindTapButton(id, stateKey) {
+    const el = document.getElementById(id);
+    el.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      GAME.TouchState[stateKey] = true;
+      setTimeout(() => { GAME.TouchState[stateKey] = false; }, 80);
+    });
+  }
+  bindTapButton("touch-btn-swap", "swap");
+  bindTapButton("touch-btn-join", "join");
+  bindTapButton("touch-btn-connect", "connect");
+})();
+
+
+// ===========================================================================
+// PLAYERS — one entry per joined player (keyboard counts as one source,
+// each gamepad index another). Handles join, momentum movement/fire, the
+// damage model, lives, special-weapon slots, and the respawn sequence.
+//
+// Damage model:
+//  - 4 HP bars. An enemy bullet takes 1 bar (takeDamage).
+//  - At 0 bars the ship is "critical" (blinks red); ANY further hit destroys it.
+//  - Ramming an object (asteroid / enemy ship) drops you straight to 0 bars
+//    (crash); if already critical, it destroys you.
+//  - Destroyed = lose a life; press a button to respawn (blink + ripple ~3s,
+//    invulnerable during that window). HP refills on respawn.
+// ===========================================================================
+(function () {
+  const CONFIG = GAME.CONFIG;
+  const SPAWN_Y_OFFSETS = [0, 1.4, -1.4, 2.8, -2.8, 4.2, -4.2, 5.6];
+  const WEAPON_LABELS = { laser: "LASER", nuke: "NUKE", teleport: "TELE", emp: "EMP", mine: "MINE", shield: "SHLD" };
+
+  function makeRingTexture() {
+    const size = 128;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    ctx.strokeStyle = "rgba(255,255,255,1)";
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2 - 6, 0, Math.PI * 2);
+    ctx.stroke();
+    return new THREE.CanvasTexture(canvas);
+  }
+  const ringTexture = makeRingTexture();
+
+  let players = [];
+  let joinedSources = new Set();
+
+  function playerBarEl() { return document.getElementById("player-bar"); }
+
+  function refreshChip(player) {
+    let chip = document.getElementById("chip-" + player.id);
+    if (!chip) {
+      chip = document.createElement("div");
+      chip.id = "chip-" + player.id;
+      chip.className = "player-chip";
+      chip.innerHTML =
+        '<div class="chip-swatch"></div><div class="chip-label"></div>' +
+        '<div class="chip-lives"></div><div class="chip-bars"></div><div class="chip-weapons"></div>';
+      const bars = chip.querySelector(".chip-bars");
+      for (let i = 0; i < CONFIG.maxHealth; i++) {
+        const seg = document.createElement("div");
+        seg.className = "chip-seg";
+        bars.appendChild(seg);
+      }
+      playerBarEl().appendChild(chip);
+    }
+    const colorCss = "#" + player.color.toString(16).padStart(6, "0");
+    chip.querySelector(".chip-swatch").style.background = colorCss;
+    chip.querySelector(".chip-label").textContent = "P" + player.id;
+    chip.querySelector(".chip-lives").textContent = "×" + Math.max(0, player.lives);
+    chip.querySelectorAll(".chip-seg").forEach((seg, i) => {
+      seg.style.background = i < player.hp ? colorCss : "rgba(255,255,255,0.12)";
+      seg.classList.toggle("seg-critical", !!player.critical); // all bars pulse red at 0 HP
+    });
+    chip.querySelector(".chip-weapons").innerHTML = player.weapons
+      .map((w, i) => '<span class="' + (i === 0 ? "w-active" : "") + '">' + WEAPON_LABELS[w.type] + " ×" + w.ammo + "</span>")
+      .join("");
+    chip.classList.toggle("chip-out", player.state === "OUT");
+    chip.classList.toggle("chip-critical", !!player.critical);
+  }
+
+  function spawnAt(player) {
+    const bounds = GAME.getPlayBounds();
+    player.obj.mesh.position.set(
+      THREE.MathUtils.lerp(bounds.minX, bounds.maxX, CONFIG.shipStartXFraction),
+      SPAWN_Y_OFFSETS[(player.id - 1) % SPAWN_Y_OFFSETS.length],
+      0
+    );
+    player.velocity.set(0, 0);
+  }
+
+  function createPlayer(source) {
+    const id = players.length + 1;
+    const color = CONFIG.playerColors[(id - 1) % CONFIG.playerColors.length];
+    const obj = GAME.buildShip(color);
+    GAME.scene.add(obj.mesh);
+
+    const ringMat = new THREE.SpriteMaterial({
+      map: ringTexture, color, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const ring = new THREE.Sprite(ringMat);
+    ring.scale.set(0.1, 0.1, 1);
+    GAME.scene.add(ring);
+
+    const player = {
+      id, source, color, obj, ring,
+      velocity: new THREE.Vector2(0, 0),
+      lives: CONFIG.startingLives,
+      hp: CONFIG.maxHealth,
+      weapons: [], // special weapon slots: [{ type, ammo }], max 2
+      shieldTimer: 0,
+      fireTimer: 0,
+      formation: null, // set to a solo formation just below
+      stackOffset: 0,
+      state: "ALIVE",
+      critical: false,
+      respawnTimer: 0,
+      blinkTimer: 0,
+    };
+    spawnAt(player);
+    player.formation = GAME.Formations_soloFormation(player);
+    players.push(player);
+    joinedSources.add(source);
+    refreshChip(player);
+    return player;
+  }
+
+  function join(source) {
+    if (!joinedSources.has(source)) createPlayer(source);
+  }
+
+  function scanForJoins() {
+    if (GAME.Input.isJoinPressedEdge("keyboard") && !joinedSources.has("keyboard")) join("keyboard");
+    if (GAME.Input.isJoinPressedEdge("touch") && !joinedSources.has("touch")) join("touch");
+    for (const idx of GAME.Input.connectedGamepadIndices()) {
+      if (GAME.Input.isJoinPressedEdge(idx) && !joinedSources.has(idx)) join(idx);
+    }
+  }
+
+  const CRIT_RED = new THREE.Color(0xff2222);
+  const tintTmp = new THREE.Color();
+
+  function resetShipTint(player) {
+    for (const m of player.obj.materials) {
+      m.emissive.setHex(player.color);
+      m.emissiveIntensity = 0.1;
+    }
+  }
+
+  // While critical, pulse the hull/wings between the player's color and red.
+  function applyCriticalBlink(player, dt) {
+    player.critClock = (player.critClock || 0) + dt * 9;
+    const pulse = (Math.sin(player.critClock) + 1) / 2;
+    tintTmp.setHex(player.color).lerp(CRIT_RED, 0.35 + 0.65 * pulse);
+    for (const m of player.obj.materials) {
+      m.emissive.copy(tintTmp);
+      m.emissiveIntensity = 0.15 + pulse * 0.6;
+    }
+    // Steady pulsing ring, reusing the respawn-ripple sprite — far easier to
+    // spot than the hull tint alone, especially in a crowded formation.
+    if (player.state === "ALIVE") {
+      player.ring.position.copy(player.obj.mesh.position);
+      player.ring.material.color.setHex(0xff2222);
+      player.ring.scale.setScalar(0.55 + pulse * 0.35);
+      player.ring.material.opacity = 0.55 + pulse * 0.4;
+    }
+  }
+
+  function setCritical(player) {
+    player.hp = 0;
+    player.critical = true;
+    player.obj.glowSprite.material.color.setHex(0xff2222);
+  }
+
+  // Ship destroyed: lose a life.
+  function destroyShip(player) {
+    try {
+      GAME.Formations.handleDeath(player);
+    } catch (err) {
+      console.error("Formation split failed on death — forcing solo as a fallback:", err);
+      player.formation = GAME.Formations_soloFormation(player);
+      player.stackOffset = 0;
+    }
+    const pos = player.obj.mesh.position.clone();
+    player.critical = false;
+    player.hp = 0;
+    player.shieldTimer = 0;
+    player.obj.glowSprite.material.color.setHex(0xffffff);
+    resetShipTint(player);
+    player.lives -= 1;
+    player.obj.mesh.visible = false;
+    GAME.Effects.explode(pos, player.color, 1.3);
+    GAME.Audio.explosion(true);
+    player.state = player.lives <= 0 ? "OUT" : "WAITING_RESPAWN";
+  }
+
+  // Enemy bullet (or anything light): 1 HP bar.
+  function takeDamage(player, amount) {
+    if (player.state !== "ALIVE") return; // respawning/out players are invulnerable
+    if (player.hp <= 0) {
+      destroyShip(player);
+    } else {
+      player.hp = Math.max(0, player.hp - (amount || 1));
+      GAME.Effects.spark(player.obj.mesh.position.clone(), 0xff8a5f);
+      GAME.Audio.impact();
+      if (player.hp <= 0) setCritical(player);
+    }
+    refreshChip(player);
+  }
+
+  // Ramming an object: straight to 0 bars, or destroyed if already critical.
+  function crash(player) {
+    if (player.state !== "ALIVE") return;
+    if (player.hp <= 0) {
+      destroyShip(player);
+    } else {
+      setCritical(player);
+      GAME.Effects.explode(player.obj.mesh.position.clone(), 0xff9a4d, 0.7);
+      GAME.Audio.explosion(false);
+    }
+    refreshChip(player);
+  }
+
+  function updatePlayer(player, dt, bounds) {
+    if (player.state === "OUT") return;
+
+    if (player.state === "WAITING_RESPAWN") {
+      const pressed = GAME.Input.isFireHeld(player.source) || GAME.Input.isJoinPressedEdge(player.source);
+      if (pressed) {
+        spawnAt(player);
+        player.obj.mesh.visible = true;
+        player.critical = false;
+        player.hp = CONFIG.maxHealth;
+        player.obj.glowSprite.material.color.setHex(0xffffff);
+        resetShipTint(player);
+        player.ring.material.color.setHex(player.color);
+        player.formation = GAME.Formations_soloFormation(player);
+        player.state = "RESPAWNING";
+        player.respawnTimer = CONFIG.respawnBlinkDuration;
+        player.blinkTimer = 0;
+        refreshChip(player);
+      }
+      return;
+    }
+
+    // ALIVE and RESPAWNING both fly normally; RESPAWNING adds blink+ripple.
+    const isPassenger = player.formation.pilot !== player;
+    const mesh = player.obj.mesh;
+    let speed = player.velocity.length();
+
+    if (!isPassenger) {
+      // Pilot (or solo) — reads their own input. Formation.update() will
+      // carry passengers along at their stacked offset after this runs.
+      const speedMul = GAME.Formations.getSpeedMultiplier(player.formation);
+      const input = GAME.Input.getMovement(player.source);
+      player.velocity.x += input.x * CONFIG.shipAcceleration * speedMul * dt;
+      player.velocity.y += input.y * CONFIG.shipAcceleration * speedMul * dt;
+      player.velocity.multiplyScalar(Math.max(0, 1 - CONFIG.shipDrag * dt));
+      speed = player.velocity.length();
+      const maxSpeed = CONFIG.shipMaxSpeed * speedMul;
+      if (speed > maxSpeed) { player.velocity.multiplyScalar(maxSpeed / speed); speed = maxSpeed; }
+
+      mesh.position.x += player.velocity.x * dt;
+      mesh.position.y += player.velocity.y * dt;
+      if (mesh.position.x < bounds.minX) { mesh.position.x = bounds.minX; player.velocity.x = 0; }
+      if (mesh.position.x > bounds.maxX) { mesh.position.x = bounds.maxX; player.velocity.x = 0; }
+      if (mesh.position.y < bounds.minY) { mesh.position.y = bounds.minY; player.velocity.y = 0; }
+      if (mesh.position.y > bounds.maxY) { mesh.position.y = bounds.maxY; player.velocity.y = 0; }
+
+      const bank = THREE.MathUtils.clamp(player.velocity.y * 0.06, -0.5, 0.5);
+      const yaw = THREE.MathUtils.clamp(-player.velocity.x * 0.05, -0.35, 0.35);
+      mesh.rotation.z = THREE.MathUtils.lerp(mesh.rotation.z, bank, 0.12);
+      mesh.rotation.y = THREE.MathUtils.lerp(mesh.rotation.y, yaw, 0.12);
+    }
+    // Passengers: position/rotation are set by Formations.update() after every
+    // player has moved this frame; thruster visuals still track current speed.
+    GAME.updateShipVisual(player.obj, Math.min(1, speed / CONFIG.shipMaxSpeed), dt);
+    if (player.critical) applyCriticalBlink(player, dt);
+
+    player.fireTimer -= dt;
+    if (GAME.Input.isFireHeld(player.source) && player.fireTimer <= 0 && player.state === "ALIVE") {
+      const powerMul = GAME.Formations.getPowerMultiplier(player.formation);
+      let dx = 1, dy = 0;
+      if (GAME.Formations.isFreeAimGunner(player)) {
+        const aim = GAME.Input.getAim(player.source);
+        if (Math.hypot(aim.x, aim.y) > 0.3) { dx = aim.x; dy = aim.y; }
+      }
+      GAME.fireBullet(mesh.position.x, mesh.position.y, player.color, dx, dy);
+      GAME.Audio.playerShot();
+      player.fireTimer = CONFIG.fireCooldown / powerMul;
+    }
+
+    if (player.state === "RESPAWNING") {
+      player.respawnTimer -= dt;
+      player.blinkTimer -= dt;
+      if (player.blinkTimer <= 0) {
+        mesh.visible = !mesh.visible;
+        player.blinkTimer = CONFIG.respawnBlinkInterval;
+      }
+      const progress = 1 - Math.max(0, player.respawnTimer) / CONFIG.respawnBlinkDuration;
+      player.ring.position.copy(mesh.position);
+      player.ring.scale.setScalar(0.2 + progress * 2.2);
+      player.ring.material.opacity = (1 - progress) * 0.8;
+      if (player.respawnTimer <= 0) {
+        player.state = "ALIVE";
+        mesh.visible = true;
+        player.ring.material.opacity = 0;
+      }
+    }
+  }
+
+  function updateAll(dt) {
+    const bounds = GAME.getPlayBounds();
+    scanForJoins();
+    for (const p of players) updatePlayer(p, dt, bounds);
+  }
+
+  function allOut() {
+    return players.length > 0 && players.every((p) => p.state === "OUT");
+  }
+
+  function resetAll() {
+    for (const p of players) {
+      GAME.scene.remove(p.obj.mesh);
+      GAME.scene.remove(p.ring);
+      const chip = document.getElementById("chip-" + p.id);
+      if (chip) chip.remove();
+    }
+    players = [];
+    joinedSources = new Set();
+  }
+
+  GAME.Players = {
+    updateAll, allOut, resetAll, takeDamage, crash, join, refreshChip,
+    list: () => players,
+  };
+})();
+
+
+// ===========================================================================
+// FORMATIONS — the ship-connection mechanic. A "formation" is a small
+// object shared by reference across every member: { members: [...bottom
+// to top], pilot: <player> }. A solo player is just a formation of one,
+// which keeps all the code below uniform (no separate solo-case branches).
+//
+// Scope for this pass (agreed with the user): vertical stacking only, one
+// player can only connect to another when they're currently solo (no
+// merging two multi-ship stacks together), and only the pilot's input
+// drives movement — passengers ride along at a fixed offset.
+// ===========================================================================
+(function () {
+  const CONFIG = GAME.CONFIG;
+
+  function soloFormation(player) {
+    return { members: [player], pilot: player };
+  }
+  GAME.Formations_soloFormation = soloFormation; // used by players.js at create/respawn time
+
+  function recomputeOffsets(formation) {
+    const pilotIdx = formation.members.indexOf(formation.pilot);
+    formation.members.forEach((m, i) => {
+      m.stackOffset = (i - pilotIdx) * CONFIG.shipStackSpacing;
+    });
+  }
+
+  // --- Query helpers used by players.js / weapons.js --------------------------
+  function isFreeAimGunner(player) {
+    const f = player.formation;
+    if (f.members.length < 3) return false;
+    return player === f.members[0] || player === f.members[f.members.length - 1];
+  }
+
+  function getSpeedMultiplier(formation) {
+    const extra = formation.members.length - 1;
+    return Math.max(CONFIG.formationMinSpeedMultiplier, 1 - extra * CONFIG.formationSpeedPerExtraShip);
+  }
+
+  function getPowerMultiplier(formation) {
+    const extra = formation.members.length - 1;
+    return Math.min(CONFIG.formationPowerMaxMultiplier, 1 + extra * CONFIG.formationPowerPerExtraShip);
+  }
+
+  // --- Splitting (shared by voluntary disengage and death) --------------------
+  function finalizeGroup(group, originalPilot, breakEndIsLast) {
+    if (group.length === 0) return;
+    if (group.length === 1) {
+      group[0].formation = soloFormation(group[0]);
+      group[0].stackOffset = 0;
+      return;
+    }
+    const newFormation = { members: group, pilot: null };
+    newFormation.pilot = group.includes(originalPilot)
+      ? originalPilot
+      : (breakEndIsLast ? group[group.length - 1] : group[0]);
+    for (const m of group) m.formation = newFormation;
+    recomputeOffsets(newFormation);
+  }
+
+  function splitFormationAt(formation, idx) {
+    const removed = formation.members[idx];
+    const below = formation.members.slice(0, idx);
+    const above = formation.members.slice(idx + 1);
+    removed.formation = soloFormation(removed);
+    removed.stackOffset = 0;
+
+    // The half that broke off (doesn't contain the original pilot) promotes
+    // whichever ship is now at the break point to pilot.
+    finalizeGroup(below, formation.pilot, true);   // break point is "below"'s top end
+    finalizeGroup(above, formation.pilot, false);  // break point is "above"'s bottom end
+
+    GAME.Effects.spark(removed.obj.mesh.position.clone(), 0xffffff);
+  }
+
+  function handleDeath(player) {
+    const f = player.formation;
+    if (f.members.length <= 1) return;
+    splitFormationAt(f, f.members.indexOf(player));
+  }
+
+  function disengage(player) {
+    const f = player.formation;
+    if (f.members.length <= 1) return; // already solo, nothing to leave
+    splitFormationAt(f, f.members.indexOf(player));
+    GAME.Audio.impact();
+  }
+
+  function connect(joiner, targetFormation, attachEnd) {
+    joiner.formation = targetFormation;
+    if (attachEnd === "top") targetFormation.members.push(joiner);
+    else targetFormation.members.unshift(joiner);
+    recomputeOffsets(targetFormation);
+    GAME.Effects.spark(joiner.obj.mesh.position.clone(), 0xffffff);
+    GAME.Audio.pickup();
+  }
+
+  // --- Connect prompts ----------------------------------------------------
+  const promptEls = new Map();
+  function promptFor(player) {
+    let el = promptEls.get(player.id);
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "connect-prompt";
+      document.getElementById("connect-prompts").appendChild(el);
+      promptEls.set(player.id, el);
+    }
+    return el;
+  }
+  function hideAllPrompts() {
+    for (const el of promptEls.values()) el.style.display = "none";
+  }
+  function connectLabelFor(source) {
+    if (source === "keyboard") return "Connect [E]";
+    if (source === "touch") return "Connect [LINK]";
+    return "Connect [A]";
+  }
+
+  function findConnectTarget(solo, allFormations) {
+    let best = null, bestDist = CONFIG.connectRange;
+    const pp = solo.obj.mesh.position;
+    for (const f of allFormations) {
+      if (f === solo.formation) continue;
+      for (const m of f.members) {
+        const d = Math.hypot(pp.x - m.obj.mesh.position.x, pp.y - m.obj.mesh.position.y);
+        if (d < bestDist) {
+          bestDist = d;
+          best = { formation: f, nearMember: m };
+        }
+      }
+    }
+    if (!best) return null;
+    const attachEnd = pp.y > best.nearMember.obj.mesh.position.y ? "top" : "bottom";
+    return { formation: best.formation, attachEnd };
+  }
+
+  // --- Top-level update, called once per frame from main.js -------------------
+  function update(dt) {
+    const players = GAME.Players.list();
+    const formations = new Set(players.map((p) => p.formation));
+
+    hideAllPrompts();
+
+    for (const p of players) {
+      if (p.state !== "ALIVE") continue;
+
+      if (p.formation.members.length === 1) {
+        // Solo: look for someone to connect to.
+        const target = findConnectTarget(p, formations);
+        if (target) {
+          const el = promptFor(p);
+          el.textContent = connectLabelFor(p.source);
+          el.style.display = "block";
+          const screen = p.obj.mesh.position.clone().project(GAME.camera);
+          el.style.left = ((screen.x * 0.5 + 0.5) * window.innerWidth) + "px";
+          el.style.top = ((1 - (screen.y * 0.5 + 0.5)) * window.innerHeight - 28) + "px";
+
+          if (GAME.Input.isConnectPressedEdge(p.source)) {
+            connect(p, target.formation, target.attachEnd);
+          }
+        }
+      } else if (GAME.Input.isConnectPressedEdge(p.source) && p.formation.pilot !== p) {
+        // Any passenger can disengage with their own connect button.
+        disengage(p);
+      }
+    }
+
+    // Passengers ride along at a fixed offset from their pilot, synced after
+    // every player has had a chance to move this frame.
+    for (const f of formations) {
+      if (f.members.length <= 1) continue;
+      const pilot = f.pilot;
+      for (const m of f.members) {
+        if (m === pilot) continue;
+        m.obj.mesh.position.set(pilot.obj.mesh.position.x, pilot.obj.mesh.position.y + m.stackOffset, 0);
+        m.obj.mesh.rotation.z = pilot.obj.mesh.rotation.z;
+        m.obj.mesh.rotation.y = pilot.obj.mesh.rotation.y;
+        m.velocity.copy(pilot.velocity);
+      }
+    }
+  }
+
+  function resetAll() {
+    hideAllPrompts();
+  }
+
+  GAME.Formations = {
+    update, resetAll, handleDeath, isFreeAimGunner, getSpeedMultiplier, getPowerMultiplier,
+  };
+})();
+
+
+// ===========================================================================
+// ENEMIES — angular chevron ships. Small ships fly a straight path with a
+// gentle wobble and shoot occasionally; medium ships patrol until a player
+// is within a vertical "threat band," then engage (home toward that player,
+// fire faster) before continuing off-screen.
+//
+// Collisions (all on the screen plane): player bullets use swept tests so
+// fast shots can't skip over a ship; ramming an enemy destroys it (medium or
+// smaller) and crashes the player; the laser/nuke hook in via damageRect /
+// damageCircle / hitTest below.
+// ===========================================================================
+(function () {
+  const CONFIG = GAME.CONFIG;
+
+  function makeChevronShape() {
+    const shape = new THREE.Shape();
+    shape.moveTo(0.75, 0);
+    shape.lineTo(-0.65, 0.55);
+    shape.lineTo(-0.15, 0.12);
+    shape.lineTo(-0.15, -0.12);
+    shape.lineTo(-0.65, -0.55);
+    shape.lineTo(0.75, 0);
+    return shape;
+  }
+
+  function makeVentGlowTexture(colorHex) {
+    const r = (colorHex >> 16) & 255, g = (colorHex >> 8) & 255, b = colorHex & 255;
+    const size = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    grad.addColorStop(0, `rgba(${r},${g},${b},0.95)`);
+    grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  function makeEnemyMesh(sizeCategory) {
+    const accentColor = sizeCategory === "small" ? CONFIG.enemySmallColor : CONFIG.enemyMediumColor;
+    const group = new THREE.Group();
+
+    const hullMat = new THREE.MeshStandardMaterial({
+      color: 0x2a2a3a, metalness: 0.7, roughness: 0.35, flatShading: true,
+    });
+    const bladeMat = new THREE.MeshStandardMaterial({
+      color: 0x14141c, metalness: 0.6, roughness: 0.4, flatShading: true,
+    });
+
+    const hullGeo = new THREE.ExtrudeGeometry(makeChevronShape(), {
+      depth: 0.1, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 1,
+    });
+    hullGeo.translate(0, 0, -0.05);
+    group.add(new THREE.Mesh(hullGeo, hullMat));
+
+    const bladeGeo = new THREE.ConeGeometry(0.04, 0.55, 4);
+    const bladeTop = new THREE.Mesh(bladeGeo, bladeMat);
+    bladeTop.position.set(-0.85, 0.62, 0);
+    bladeTop.rotation.z = Math.PI * 0.62;
+    const bladeBottom = bladeTop.clone();
+    bladeBottom.position.y = -0.62;
+    bladeBottom.rotation.z = -Math.PI * 0.62;
+    group.add(bladeTop, bladeBottom);
+
+    const vent = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: makeVentGlowTexture(accentColor), transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    vent.scale.set(0.5, 0.4, 1);
+    vent.position.set(-0.25, 0, 0);
+    group.add(vent);
+
+    const extraScale = sizeCategory === "small" ? CONFIG.enemySmallScale : CONFIG.enemyMediumScale;
+    group.scale.setScalar(CONFIG.shipVisualScale * extraScale);
+    group.rotation.y = Math.PI; // face -X (traveling left, toward the players)
+
+    return { mesh: group };
+  }
+
+  // Shared enemy bullet visuals (red core + soft glow so they're easy to see).
+  const enemyBulletGeo = new THREE.SphereGeometry(0.07, 8, 8);
+  const enemyBulletMat = new THREE.MeshBasicMaterial({ color: CONFIG.enemyBulletColor });
+  const enemyGlowCanvas = document.createElement("canvas");
+  enemyGlowCanvas.width = enemyGlowCanvas.height = 64;
+  (function () {
+    const ctx = enemyGlowCanvas.getContext("2d");
+    const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, "rgba(255,70,50,1)");
+    grad.addColorStop(0.35, "rgba(255,20,20,0.85)");
+    grad.addColorStop(1, "rgba(255,0,0,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 64, 64);
+  })();
+  const enemyGlowMat = new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(enemyGlowCanvas), transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+
+  let enemies = [];
+  let enemyBullets = [];
+  let spawnTimerSmall = CONFIG.spawnIntervalSmall;
+  let spawnTimerMedium = CONFIG.spawnIntervalMedium;
+
+  function hitRadiusOf(enemy) {
+    return enemy.sizeCategory === "small" ? CONFIG.enemyHitRadiusSmall : CONFIG.enemyHitRadiusMedium;
+  }
+
+  function spawnSmall() {
+    const bounds = GAME.getPlayBounds();
+    const obj = makeEnemyMesh("small");
+    const y = THREE.MathUtils.lerp(bounds.minY, bounds.maxY, Math.random());
+    obj.mesh.position.set(bounds.maxX + 2, y, 0);
+    GAME.scene.add(obj.mesh);
+    enemies.push({
+      obj, sizeCategory: "small",
+      health: CONFIG.enemySmallHealth, maxHealth: CONFIG.enemySmallHealth,
+      baseY: y, wobblePhase: Math.random() * Math.PI * 2,
+      fireTimer: THREE.MathUtils.randFloat(CONFIG.enemySmallFireIntervalMin, CONFIG.enemySmallFireIntervalMax),
+      phase: "PATROL", engageTimer: 0, age: 0, stunned: 0, empHits: 0,
+    });
+  }
+
+  function spawnMedium() {
+    const bounds = GAME.getPlayBounds();
+    const obj = makeEnemyMesh("medium");
+    const y = THREE.MathUtils.lerp(bounds.minY, bounds.maxY, Math.random());
+    obj.mesh.position.set(bounds.maxX + 2.5, y, 0);
+    GAME.scene.add(obj.mesh);
+    enemies.push({
+      obj, sizeCategory: "medium",
+      health: CONFIG.enemyMediumHealth, maxHealth: CONFIG.enemyMediumHealth,
+      baseY: y, wobblePhase: 0,
+      fireTimer: CONFIG.enemyMediumFireInterval,
+      phase: "PATROL", engageTimer: 0, age: 0, stunned: 0, empHits: 0,
+    });
+  }
+
+  function fireEnemyBullet(x, y) {
+    const mesh = new THREE.Mesh(enemyBulletGeo, enemyBulletMat);
+    mesh.position.set(x - 0.3, y, 0);
+    const glow = new THREE.Sprite(enemyGlowMat);
+    glow.scale.set(0.5, 0.5, 1);
+    mesh.add(glow);
+    GAME.scene.add(mesh);
+    enemyBullets.push({ mesh, life: 3.0 });
+    GAME.Audio.enemyShot();
+  }
+
+  function findThreatTarget(enemy) {
+    for (const p of GAME.Players.list()) {
+      if (p.state !== "ALIVE") continue;
+      if (Math.abs(p.obj.mesh.position.y - enemy.obj.mesh.position.y) < CONFIG.threatBandY) return p;
+    }
+    return null;
+  }
+
+  function updateEnemy(enemy, dt) {
+    const mesh = enemy.obj.mesh;
+    enemy.age += dt;
+
+    if (enemy.stunned > 0) {
+      enemy.stunned -= dt;
+      const speed = enemy.sizeCategory === "small" ? CONFIG.enemySmallSpeed : CONFIG.enemyMediumSpeed;
+      mesh.position.x -= speed * dt;
+      mesh.rotation.z += 6 * dt; // visual "tumbling"
+      return;
+    }
+
+    if (enemy.sizeCategory === "small") {
+      mesh.position.x -= CONFIG.enemySmallSpeed * dt;
+      mesh.position.y = enemy.baseY + Math.sin(enemy.age * 2 + enemy.wobblePhase) * 0.6;
+
+      enemy.fireTimer -= dt;
+      if (enemy.fireTimer <= 0) {
+        fireEnemyBullet(mesh.position.x, mesh.position.y);
+        enemy.fireTimer = THREE.MathUtils.randFloat(CONFIG.enemySmallFireIntervalMin, CONFIG.enemySmallFireIntervalMax);
+      }
+    } else {
+      if (enemy.phase === "PATROL") {
+        const target = findThreatTarget(enemy);
+        if (target) { enemy.phase = "ENGAGE"; enemy.engageTimer = CONFIG.mediumEngageDuration; enemy.target = target; }
+      }
+
+      if (enemy.phase === "ENGAGE") {
+        mesh.position.x -= CONFIG.enemyEngageSpeed * dt;
+        const targetStillAlive = enemy.target && enemy.target.state === "ALIVE";
+        if (targetStillAlive) {
+          const dy = enemy.target.obj.mesh.position.y - mesh.position.y;
+          mesh.position.y += THREE.MathUtils.clamp(dy, -2.5, 2.5) * dt;
+        }
+        enemy.engageTimer -= dt;
+        if (enemy.engageTimer <= 0) enemy.phase = "EXIT";
+      } else {
+        mesh.position.x -= CONFIG.enemyMediumSpeed * dt;
+      }
+
+      enemy.fireTimer -= dt;
+      if (enemy.fireTimer <= 0) {
+        fireEnemyBullet(mesh.position.x, mesh.position.y);
+        enemy.fireTimer = enemy.phase === "ENGAGE" ? CONFIG.enemyMediumFireInterval : CONFIG.enemyMediumFireInterval * 2;
+      }
+    }
+  }
+
+  function updateEnemyBullets(dt) {
+    for (let i = enemyBullets.length - 1; i >= 0; i--) {
+      const b = enemyBullets[i];
+      b.mesh.position.x -= CONFIG.enemyBulletSpeed * dt;
+      b.life -= dt;
+      if (b.life <= 0) {
+        GAME.scene.remove(b.mesh);
+        enemyBullets.splice(i, 1);
+      }
+    }
+  }
+
+  function checkCollisions() {
+    const bounds = GAME.getPlayBounds();
+    const hit = GAME.Collision;
+
+    // Player bullets vs enemies (swept: prev -> current position).
+    const playerBullets = GAME.getBullets();
+    for (const enemy of enemies) {
+      if (enemy.health <= 0) continue;
+      const ep = enemy.obj.mesh.position;
+      const radius = hitRadiusOf(enemy);
+      for (const bullet of playerBullets.slice()) {
+        const bp = bullet.mesh.position;
+        if (hit.segCircle(bullet.prev.x, bullet.prev.y, bp.x, bp.y, ep.x, ep.y, radius)) {
+          enemy.health -= 1;
+          GAME.Effects.spark(bp.clone(), 0xffe9a8);
+          GAME.Audio.impact();
+          GAME.removeBullet(bullet);
+          if (enemy.health <= 0) break;
+        }
+      }
+    }
+
+    // Ramming: the enemy is destroyed (medium or smaller), the player crashes.
+    for (const p of GAME.Players.list()) {
+      if (p.state !== "ALIVE") continue;
+      const pp = p.obj.mesh.position;
+      for (const enemy of enemies) {
+        if (enemy.health <= 0) continue;
+        const ep = enemy.obj.mesh.position;
+        if (Math.hypot(pp.x - ep.x, pp.y - ep.y) < CONFIG.playerHitRadius + hitRadiusOf(enemy)) {
+          enemy.health = 0;
+          GAME.Players.crash(p);
+          if (p.state !== "ALIVE") break;
+        }
+      }
+    }
+
+    enemies = enemies.filter((enemy) => {
+      if (enemy.health <= 0) {
+        const isSmall = enemy.sizeCategory === "small";
+        GAME.Effects.explode(
+          enemy.obj.mesh.position.clone(),
+          isSmall ? CONFIG.enemySmallColor : CONFIG.enemyMediumColor,
+          isSmall ? 0.8 : 1.3
+        );
+        GAME.Audio.explosion(!isSmall);
+        GAME.scene.remove(enemy.obj.mesh);
+        GAME.Score.add(isSmall ? CONFIG.scoreSmall : CONFIG.scoreMedium);
+        return false;
+      }
+      if (enemy.obj.mesh.position.x < bounds.minX - 3) {
+        GAME.scene.remove(enemy.obj.mesh);
+        return false;
+      }
+      return true;
+    });
+
+    // Enemy bullets vs players: 1 HP bar each, unless a reflector shield
+    // (a panel only in front of the ship) catches it.
+    for (let i = enemyBullets.length - 1; i >= 0; i--) {
+      const bullet = enemyBullets[i];
+      const bp = bullet.mesh.position;
+      for (const p of GAME.Players.list()) {
+        if (p.state !== "ALIVE") continue;
+        const pp = p.obj.mesh.position;
+        let blocked = false;
+        if (p.shieldTimer > 0) {
+          const shieldX = pp.x + CONFIG.shieldOffsetX;
+          blocked = Math.hypot(bp.x - shieldX, bp.y - pp.y) < CONFIG.shieldRadius;
+        }
+        const reach = blocked ? CONFIG.shieldRadius : CONFIG.playerHitRadius + 0.05;
+        const hitX = blocked ? pp.x + CONFIG.shieldOffsetX : pp.x;
+        if (Math.hypot(bp.x - hitX, bp.y - pp.y) < reach) {
+          GAME.scene.remove(bullet.mesh);
+          enemyBullets.splice(i, 1);
+          if (blocked) {
+            GAME.fireBullet(bp.x, bp.y, p.color);
+            GAME.Audio.impact();
+          } else {
+            GAME.Players.takeDamage(p, 1);
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // --- Hooks for special weapons (laser / nuke) -----------------------------
+  function damageRect(x0, x1, y0, y1, amount, sparkNow) {
+    for (const e of enemies) {
+      const p = e.obj.mesh.position;
+      const r = hitRadiusOf(e);
+      if (p.x + r >= x0 && p.x - r <= x1 && p.y + r >= y0 && p.y - r <= y1) {
+        e.health -= amount;
+        if (sparkNow) GAME.Effects.spark(p.clone(), 0xffffff);
+      }
+    }
+  }
+  function damageCircle(x, y, radius, amount) {
+    for (const e of enemies) {
+      const p = e.obj.mesh.position;
+      if (Math.hypot(p.x - x, p.y - y) < radius + hitRadiusOf(e)) e.health -= amount;
+    }
+  }
+  function hitTest(x, y, radius) {
+    return enemies.some((e) => {
+      const p = e.obj.mesh.position;
+      return e.health > 0 && Math.hypot(p.x - x, p.y - y) < radius + hitRadiusOf(e);
+    });
+  }
+
+  // EMP: stuns every ship within radius; bigger ships need multiple hits.
+  // Called every frame while the blast visual is expanding, so anything
+  // that drifts into the growing radius gets caught too.
+  function stunAt(x, y, radius) {
+    let hitAny = false;
+    for (const e of enemies) {
+      if (e.health <= 0 || e.stunned > 0) continue;
+      const p = e.obj.mesh.position;
+      if (Math.hypot(p.x - x, p.y - y) < radius + hitRadiusOf(e)) {
+        e.empHits += 1;
+        const needed = e.sizeCategory === "small" ? CONFIG.empHitsToStunSmall : CONFIG.empHitsToStunMedium;
+        if (e.empHits >= needed) { e.stunned = CONFIG.empStunDuration; e.empHits = 0; }
+        hitAny = true;
+      }
+    }
+    return hitAny;
+  }
+
+  // Mines: instant-kill within triggerRadius, cascading to nearby enemies
+  // within chainRadius of each kill. Returns true if anything was hit
+  // (so the mine knows to detonate).
+  function chainKill(x, y, triggerRadius, chainRadius) {
+    const centers = [{ x, y }];
+    let hitAny = false;
+    let addedMore = true;
+    while (addedMore) {
+      addedMore = false;
+      for (const e of enemies) {
+        if (e.health <= 0) continue;
+        const p = e.obj.mesh.position;
+        const withinAnyCenter = centers.some((c) => Math.hypot(p.x - c.x, p.y - c.y) < (c === centers[0] ? triggerRadius : chainRadius) + hitRadiusOf(e));
+        if (withinAnyCenter) {
+          e.health = 0;
+          centers.push({ x: p.x, y: p.y });
+          hitAny = true;
+          addedMore = true;
+        }
+      }
+    }
+    return hitAny;
+  }
+
+  function clearBulletsInRadius(x, y, radius) {
+    for (let i = enemyBullets.length - 1; i >= 0; i--) {
+      const bp = enemyBullets[i].mesh.position;
+      if (Math.hypot(bp.x - x, bp.y - y) < radius) {
+        GAME.scene.remove(enemyBullets[i].mesh);
+        enemyBullets.splice(i, 1);
+      }
+    }
+  }
+
+  function list() { return enemies; }
+
+  function updateAll(dt) {
+    spawnTimerSmall -= dt;
+    if (spawnTimerSmall <= 0) { spawnSmall(); spawnTimerSmall = CONFIG.spawnIntervalSmall; }
+    spawnTimerMedium -= dt;
+    if (spawnTimerMedium <= 0) { spawnMedium(); spawnTimerMedium = CONFIG.spawnIntervalMedium; }
+
+    for (const enemy of enemies) updateEnemy(enemy, dt);
+    updateEnemyBullets(dt);
+    checkCollisions();
+  }
+
+  function resetAll() {
+    for (const e of enemies) GAME.scene.remove(e.obj.mesh);
+    for (const b of enemyBullets) GAME.scene.remove(b.mesh);
+    enemies = [];
+    enemyBullets = [];
+    spawnTimerSmall = CONFIG.spawnIntervalSmall;
+    spawnTimerMedium = CONFIG.spawnIntervalMedium;
+  }
+
+  GAME.Enemies = { updateAll, resetAll, damageRect, damageCircle, hitTest, stunAt, chainKill, clearBulletsInRadius, list };
+})();
+
+
+// ===========================================================================
+// HAZARDS — asteroid clusters, spawned in groups with a deliberate gap so
+// they funnel the player toward a safe lane.
+//
+// Interactions (all collision math is on the screen plane — the old bug was
+// a random depth offset making shots/ships visually overlap yet miss):
+//  - Ship rams an asteroid: asteroid fully explodes, the ship crashes.
+//  - Player bullet hits one: breaks into ~3 smaller, slower drifting pieces;
+//    pieces below a minimum size just explode. Bullet hits are swept tests.
+//  - Laser / nuke: destroys asteroids outright (hooks at the bottom).
+// ===========================================================================
+(function () {
+  const CONFIG = GAME.CONFIG;
+  const PIECES_PER_BREAK = 3;
+  const PIECE_SCALE_FACTOR = 0.55;
+  const MIN_SPLIT_SCALE = 0.3;
+
+  function makeAsteroidGeometry() {
+    const geo = new THREE.IcosahedronGeometry(0.35, 0);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const jitter = 0.8 + Math.random() * 0.4;
+      pos.setXYZ(i, pos.getX(i) * jitter, pos.getY(i) * jitter, pos.getZ(i) * jitter);
+    }
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  const asteroidMat = new THREE.MeshStandardMaterial({
+    color: 0x5a4f47, metalness: 0.1, roughness: 0.9, flatShading: true,
+  });
+
+  let hazards = [];
+  let spawnTimer = CONFIG.hazardFieldInterval;
+
+  function radiusOf(h) { return Math.max(0.12, CONFIG.hazardHitRadius * h.scale); }
+
+  function addHazard(position, scale, velocity) {
+    const mesh = new THREE.Mesh(makeAsteroidGeometry(), asteroidMat);
+    mesh.scale.setScalar(scale);
+    mesh.position.copy(position);
+    mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+    GAME.scene.add(mesh);
+    hazards.push({
+      mesh, scale, velocity,
+      spin: new THREE.Vector3(
+        (Math.random() - 0.5) * CONFIG.hazardRotSpeedMax,
+        (Math.random() - 0.5) * CONFIG.hazardRotSpeedMax,
+        (Math.random() - 0.5) * CONFIG.hazardRotSpeedMax
+      ),
+      dead: false,
+    });
+  }
+
+  function spawnField() {
+    const bounds = GAME.getPlayBounds();
+    const spawnX = bounds.maxX + 3;
+    const gapY = THREE.MathUtils.lerp(bounds.minY, bounds.maxY, 0.2 + Math.random() * 0.6);
+    const gapHalfHeight = 1.1;
+
+    let placed = 0, attempts = 0;
+    while (placed < CONFIG.hazardsPerField && attempts < 40) {
+      attempts++;
+      const y = THREE.MathUtils.lerp(bounds.minY, bounds.maxY, Math.random());
+      if (Math.abs(y - gapY) < gapHalfHeight) continue;
+
+      const scale = THREE.MathUtils.lerp(CONFIG.hazardMinScale, CONFIG.hazardMaxScale, Math.random());
+      addHazard(
+        new THREE.Vector3(spawnX + Math.random() * 2, y, (Math.random() - 0.5) * 0.6),
+        scale,
+        new THREE.Vector2(-CONFIG.hazardSpeed, 0)
+      );
+      placed++;
+    }
+  }
+
+  // Shot: split into slower pieces, or pop outright if already small.
+  function breakHazard(h) {
+    const pos = h.mesh.position.clone();
+    h.dead = true;
+    if (h.scale >= MIN_SPLIT_SCALE) {
+      for (let i = 0; i < PIECES_PER_BREAK; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const drift = 0.8 + Math.random() * 1.0;
+        addHazard(
+          pos.clone().add(new THREE.Vector3(Math.cos(angle) * 0.15, Math.sin(angle) * 0.15, 0)),
+          h.scale * PIECE_SCALE_FACTOR,
+          new THREE.Vector2(-CONFIG.hazardSpeed * 0.5 + Math.cos(angle) * drift, Math.sin(angle) * drift)
+        );
+      }
+      GAME.Effects.spark(pos, 0xc8b8a8);
+      GAME.Audio.impact();
+    } else {
+      GAME.Effects.explode(pos, 0xb8a898, 0.6);
+      GAME.Audio.explosion(false);
+    }
+  }
+
+  function destroyHazard(h) {
+    if (h.dead) return;
+    h.dead = true;
+    GAME.Effects.explode(h.mesh.position.clone(), 0xb8a898, 0.6 + h.scale * 0.6);
+    GAME.Audio.explosion(false);
+  }
+
+  function updateAll(dt) {
+    const bounds = GAME.getPlayBounds();
+    const hit = GAME.Collision;
+
+    spawnTimer -= dt;
+    if (spawnTimer <= 0) { spawnField(); spawnTimer = CONFIG.hazardFieldInterval; }
+
+    for (const h of hazards) {
+      h.mesh.position.x += h.velocity.x * dt;
+      h.mesh.position.y += h.velocity.y * dt;
+      h.mesh.rotation.x += h.spin.x * dt;
+      h.mesh.rotation.y += h.spin.y * dt;
+      h.mesh.rotation.z += h.spin.z * dt;
+    }
+
+    // Player bullets vs asteroids (swept; copies because breaking adds
+    // hazards and removing bullets mutates the bullet list).
+    const bullets = GAME.getBullets().slice();
+    for (const h of hazards.slice()) {
+      if (h.dead) continue;
+      const hp = h.mesh.position;
+      const radius = radiusOf(h) + 0.04;
+      for (const b of bullets) {
+        const bp = b.mesh.position;
+        if (hit.segCircle(b.prev.x, b.prev.y, bp.x, bp.y, hp.x, hp.y, radius)) {
+          GAME.removeBullet(b);
+          bullets.splice(bullets.indexOf(b), 1);
+          breakHazard(h);
+          break;
+        }
+      }
+    }
+
+    // Ships vs asteroids: asteroid fully explodes, ship crashes.
+    for (const p of GAME.Players.list()) {
+      if (p.state !== "ALIVE") continue;
+      const pp = p.obj.mesh.position;
+      for (const h of hazards) {
+        if (h.dead) continue;
+        const hp = h.mesh.position;
+        if (Math.hypot(pp.x - hp.x, pp.y - hp.y) < radiusOf(h) + CONFIG.playerHitRadius) {
+          h.dead = true;
+          GAME.Effects.explode(hp.clone(), 0xffb37f, 0.9 + h.scale);
+          GAME.Audio.explosion(false);
+          GAME.Players.crash(p);
+          if (p.state !== "ALIVE") break;
+        }
+      }
+    }
+
+    hazards = hazards.filter((h) => {
+      const offscreen = h.mesh.position.x < bounds.minX - 4 || Math.abs(h.mesh.position.y) > 14;
+      if (h.dead || offscreen) {
+        GAME.scene.remove(h.mesh);
+        h.mesh.geometry.dispose();
+        return false;
+      }
+      return true;
+    });
+  }
+
+  // --- Hooks for special weapons (laser / nuke): destroy outright ----------
+  function damageRect(x0, x1, y0, y1) {
+    for (const h of hazards) {
+      const p = h.mesh.position;
+      const r = radiusOf(h);
+      if (p.x + r >= x0 && p.x - r <= x1 && p.y + r >= y0 && p.y - r <= y1) destroyHazard(h);
+    }
+  }
+  function damageCircle(x, y, radius) {
+    for (const h of hazards) {
+      const p = h.mesh.position;
+      if (Math.hypot(p.x - x, p.y - y) < radius + radiusOf(h)) destroyHazard(h);
+    }
+  }
+  function hitTest(x, y, radius) {
+    return hazards.some((h) => {
+      const p = h.mesh.position;
+      return !h.dead && Math.hypot(p.x - x, p.y - y) < radius + radiusOf(h);
+    });
+  }
+
+  function resetAll() {
+    for (const h of hazards) {
+      GAME.scene.remove(h.mesh);
+      h.mesh.geometry.dispose();
+    }
+    hazards = [];
+    spawnTimer = CONFIG.hazardFieldInterval;
+  }
+
+  GAME.Hazards = { updateAll, resetAll, damageRect, damageCircle, hitTest };
+})();
+
+
+// ===========================================================================
+// WEAPONS — special weapon pickups and the two weapons they grant.
+//
+//  - Pickups: every few seconds a spinning hologram drifts in from the right
+//    like an asteroid. Fly into it to collect: each pickup grants half of
+//    that weapon's max ammo. A player can hold up to 2 weapon types; the
+//    first slot fires (special button: left trigger / right-click / E).
+//  - Laser: a ~2s full-screen beam in the shooter's color that passes through
+//    everything, damaging over time.
+//  - Mini-nuke: a missile steered with the right stick after launch (flies
+//    straight on keyboard). Detonates on contact or timeout with a big blast.
+// ===========================================================================
+(function () {
+  const CONFIG = GAME.CONFIG;
+  const scene = GAME.scene;
+
+  const LASER_HOLO = 0xff1444;    // neon red
+  const NUKE_HOLO = 0x2f8cff;     // brighter neon blue
+  const TELEPORT_HOLO = 0xb24dff; // neon purple
+  const EMP_HOLO = 0xfff23d;      // neon yellow
+  const MINE_HOLO = 0xff7a1f;     // neon orange
+  const SHIELD_HOLO = 0x3dffb0;   // neon green
+
+  // --- Shared textures --------------------------------------------------------
+  function makeLabelTexture(text, cssColor) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 128; canvas.height = 32;
+    const ctx = canvas.getContext("2d");
+    ctx.font = "bold 22px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = cssColor;
+    ctx.shadowColor = cssColor;
+    ctx.shadowBlur = 8;
+    ctx.fillText(text, 64, 23);
+    return new THREE.CanvasTexture(canvas);
+  }
+  const labelTextures = {
+    laser: makeLabelTexture("LASER", "#ff3d6a"),
+    nuke: makeLabelTexture("GUIDED NUKE", "#5f9fff"),
+    teleport: makeLabelTexture("TELEPORT", "#c98bff"),
+    emp: makeLabelTexture("EMP", "#fff35f"),
+    mine: makeLabelTexture("MINE", "#ff9a4d"),
+    shield: makeLabelTexture("SHIELD", "#6fffcf"),
+  };
+
+  function makeBeamTexture() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 8; canvas.height = 64;
+    const ctx = canvas.getContext("2d");
+    const grad = ctx.createLinearGradient(0, 0, 0, 64);
+    grad.addColorStop(0, "rgba(255,255,255,0)");
+    grad.addColorStop(0.5, "rgba(255,255,255,1)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 8, 64);
+    return new THREE.CanvasTexture(canvas);
+  }
+  const beamTexture = makeBeamTexture();
+
+  function makeGlowTexture() {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 64;
+    const ctx = canvas.getContext("2d");
+    const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, "rgba(255,255,255,0.8)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(canvas);
+  }
+  const glowTexture = makeGlowTexture();
+
+  // --- Hologram pickups -------------------------------------------------------
+  function holoMats(color) {
+    return {
+      wire: new THREE.MeshBasicMaterial({
+        color, wireframe: true, transparent: true, opacity: 0.85,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }),
+      fill: new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity: 0.16, side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }),
+    };
+  }
+  function addHoloPart(group, geo, mats, x, y, z) {
+    const wire = new THREE.Mesh(geo, mats.wire);
+    const fill = new THREE.Mesh(geo, mats.fill);
+    wire.position.set(x || 0, y || 0, z || 0);
+    fill.position.copy(wire.position);
+    group.add(wire, fill);
+  }
+
+  function buildLaserHologram(mats) {
+    const g = new THREE.Group();
+    const beam = new THREE.CylinderGeometry(0.07, 0.07, 1.0, 10); beam.rotateZ(Math.PI / 2);
+    addHoloPart(g, beam, mats, 0.05, 0, 0);
+    const housing = new THREE.CylinderGeometry(0.16, 0.1, 0.24, 10); housing.rotateZ(Math.PI / 2);
+    addHoloPart(g, housing, mats, -0.55, 0, 0);
+    for (const x of [-0.2, 0.15, 0.5]) {
+      const ring = new THREE.TorusGeometry(0.15, 0.015, 6, 16); ring.rotateY(Math.PI / 2);
+      addHoloPart(g, ring, mats, x, 0, 0);
+    }
+    const tip = new THREE.ConeGeometry(0.12, 0.26, 10); tip.rotateZ(-Math.PI / 2);
+    addHoloPart(g, tip, mats, 0.68, 0, 0);
+    return g;
+  }
+
+  function buildNukeHologram(mats) {
+    const g = new THREE.Group();
+    const body = new THREE.CylinderGeometry(0.11, 0.11, 0.65, 10); body.rotateZ(-Math.PI / 2);
+    addHoloPart(g, body, mats, 0, 0, 0);
+    const nose = new THREE.ConeGeometry(0.11, 0.32, 10); nose.rotateZ(-Math.PI / 2);
+    addHoloPart(g, nose, mats, 0.48, 0, 0);
+    addHoloPart(g, new THREE.BoxGeometry(0.22, 0.16, 0.02), mats, -0.3, 0.14, 0);
+    addHoloPart(g, new THREE.BoxGeometry(0.22, 0.16, 0.02), mats, -0.3, -0.14, 0);
+    addHoloPart(g, new THREE.BoxGeometry(0.22, 0.02, 0.16), mats, -0.3, 0, 0.14);
+    const ring = new THREE.TorusGeometry(0.1, 0.012, 6, 14); ring.rotateY(Math.PI / 2);
+    addHoloPart(g, ring, mats, -0.36, 0, 0);
+    return g;
+  }
+
+  function buildTeleportHologram(mats) {
+    const g = new THREE.Group();
+    addHoloPart(g, new THREE.TorusGeometry(0.32, 0.03, 8, 20), mats, 0, 0, 0);
+    addHoloPart(g, new THREE.TorusGeometry(0.18, 0.025, 8, 16), mats, 0, 0, 0.1);
+    addHoloPart(g, new THREE.SphereGeometry(0.06, 8, 8), mats, 0, 0, 0.18);
+    return g;
+  }
+
+  function buildEmpHologram(mats) {
+    const g = new THREE.Group();
+    addHoloPart(g, new THREE.IcosahedronGeometry(0.28, 0), mats, 0, 0, 0);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      addHoloPart(g, new THREE.ConeGeometry(0.03, 0.22, 4), mats, Math.cos(a) * 0.3, Math.sin(a) * 0.3, 0);
+    }
+    return g;
+  }
+
+  function buildMineHologram(mats) {
+    const g = new THREE.Group();
+    addHoloPart(g, new THREE.IcosahedronGeometry(0.22, 0), mats, 0, 0, 0);
+    const dirs = [
+      [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+      [0.7, 0.7, 0], [-0.7, 0.7, 0], [0.7, -0.7, 0], [-0.7, -0.7, 0],
+    ];
+    for (const [dx, dy, dz] of dirs) {
+      const s = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.26, 4), mats.wire);
+      s.position.set(dx * 0.24, dy * 0.24, dz * 0.24);
+      s.lookAt(dx * 0.6, dy * 0.6, dz * 0.6);
+      s.rotateX(Math.PI / 2);
+      g.add(s);
+    }
+    return g;
+  }
+
+  function buildShieldHologram(mats) {
+    const g = new THREE.Group();
+    addHoloPart(g, new THREE.SphereGeometry(0.34, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), mats, 0, -0.05, 0);
+    const ring = new THREE.TorusGeometry(0.34, 0.02, 6, 20);
+    ring.rotateX(Math.PI / 2);
+    addHoloPart(g, ring, mats, 0, -0.05, 0);
+    return g;
+  }
+
+  const HOLOGRAM_BUILDERS = {
+    laser: buildLaserHologram, nuke: buildNukeHologram, teleport: buildTeleportHologram,
+    emp: buildEmpHologram, mine: buildMineHologram, shield: buildShieldHologram,
+  };
+  const HOLOGRAM_COLORS = {
+    laser: LASER_HOLO, nuke: NUKE_HOLO, teleport: TELEPORT_HOLO,
+    emp: EMP_HOLO, mine: MINE_HOLO, shield: SHIELD_HOLO,
+  };
+  const MAX_AMMO = {
+    laser: CONFIG.laserMaxAmmo, nuke: CONFIG.nukeMaxAmmo, teleport: CONFIG.teleportMaxAmmo,
+    emp: CONFIG.empMaxAmmo, mine: CONFIG.mineMaxAmmo, shield: CONFIG.shieldMaxAmmo,
+  };
+  const PICKUP_TYPES = Object.keys(HOLOGRAM_BUILDERS);
+
+  let pickups = [];
+  let pickupTimer = THREE.MathUtils.randFloat(CONFIG.pickupSpawnMin, CONFIG.pickupSpawnMax);
+
+  function spawnPickup() {
+    const bounds = GAME.getPlayBounds();
+    const type = PICKUP_TYPES[Math.floor(Math.random() * PICKUP_TYPES.length)];
+    const color = HOLOGRAM_COLORS[type];
+    const mats = holoMats(color);
+
+    const root = new THREE.Group();
+    const holo = HOLOGRAM_BUILDERS[type](mats);
+    holo.scale.setScalar(0.8);
+    root.add(holo);
+
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color, transparent: true, opacity: 0.35,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    glow.scale.set(1.6, 1.6, 1);
+    root.add(glow);
+
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: labelTextures[type], transparent: true, depthWrite: false,
+    }));
+    label.scale.set(1.0, 0.25, 1);
+    label.position.set(0, -0.55, 0);
+    root.add(label);
+
+    const baseY = THREE.MathUtils.lerp(bounds.minY, bounds.maxY, Math.random());
+    root.position.set(bounds.maxX + 2.5, baseY, 0);
+    scene.add(root);
+    pickups.push({ root, holo, mats, type, baseY, age: 0 });
+  }
+
+  // Try to add ammo. Returns false (pickup left alone) if the player can't take it.
+  function grantAmmo(player, type) {
+    const max = MAX_AMMO[type];
+    const add = Math.ceil(max * CONFIG.pickupGrantFraction);
+    const slot = player.weapons.find((w) => w.type === type);
+    if (slot) {
+      if (slot.ammo >= max) return false;
+      slot.ammo = Math.min(max, slot.ammo + add);
+    } else if (player.weapons.length < 2) {
+      player.weapons.push({ type, ammo: Math.min(max, add) });
+    } else {
+      return false;
+    }
+    GAME.Players.refreshChip(player);
+    return true;
+  }
+
+  function updatePickups(dt, bounds) {
+    pickupTimer -= dt;
+    if (pickupTimer <= 0) {
+      spawnPickup();
+      pickupTimer = THREE.MathUtils.randFloat(CONFIG.pickupSpawnMin, CONFIG.pickupSpawnMax);
+    }
+
+    for (let i = pickups.length - 1; i >= 0; i--) {
+      const pk = pickups[i];
+      pk.age += dt;
+      pk.root.position.x -= CONFIG.pickupSpeed * dt;
+      pk.root.position.y = pk.baseY + Math.sin(pk.age * 1.6) * 0.25;
+      pk.holo.rotation.y += 1.8 * dt; // horizontal turntable spin
+      const flicker = 0.75 + 0.15 * Math.sin(pk.age * 22) + 0.1 * Math.sin(pk.age * 7);
+      pk.mats.wire.opacity = flicker;
+
+      let collected = false;
+      let closest = null, closestDist = CONFIG.pickupCollectRadius;
+      for (const p of GAME.Players.list()) {
+        if (p.state !== "ALIVE") continue;
+        const pp = p.obj.mesh.position;
+        const d = Math.hypot(pp.x - pk.root.position.x, pp.y - pk.root.position.y);
+        if (d < closestDist) { closestDist = d; closest = p; }
+      }
+      if (closest && grantAmmo(closest, pk.type)) {
+        GAME.Effects.spark(pk.root.position.clone(), HOLOGRAM_COLORS[pk.type]);
+        GAME.Audio.pickup();
+        collected = true;
+      }
+
+      if (collected || pk.root.position.x < bounds.minX - 3) {
+        scene.remove(pk.root);
+        pickups.splice(i, 1);
+      }
+    }
+  }
+
+  // --- Laser beams ------------------------------------------------------------
+  let beams = [];
+
+  function startBeam(player, powerMul) {
+    const mk = (color) => new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        map: beamTexture, color, transparent: true, side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      })
+    );
+    const outer = mk(LASER_HOLO);
+    const core = mk(0xffffff);
+    scene.add(outer, core);
+
+    // Muzzle spill: a bright flare plus a few short flickering lines right
+    // at the nose, for a little "light leaking out" realism.
+    const flare = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: LASER_HOLO, transparent: true, opacity: 0.9,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    flare.scale.set(0.45, 0.45, 1);
+    scene.add(flare);
+    const spillLines = [];
+    const spillGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+    for (let i = 0; i < 4; i++) {
+      const line = new THREE.Line(spillGeo.clone(), new THREE.LineBasicMaterial({
+        color: LASER_HOLO, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending,
+      }));
+      scene.add(line);
+      spillLines.push(line);
+    }
+
+    beams.push({ player, time: CONFIG.laserDuration, outer, core, flare, spillLines, sparkTimer: 0, powerMul: powerMul || 1 });
+    GAME.Audio.laserBeam(CONFIG.laserDuration);
+  }
+
+  function removeBeam(b) {
+    scene.remove(b.outer, b.core, b.flare);
+    b.outer.geometry.dispose(); b.core.geometry.dispose();
+    b.outer.material.dispose(); b.core.material.dispose();
+    for (const line of b.spillLines) {
+      scene.remove(line);
+      line.geometry.dispose(); line.material.dispose();
+    }
+  }
+
+  function updateBeams(dt, bounds) {
+    for (let i = beams.length - 1; i >= 0; i--) {
+      const b = beams[i];
+      const p = b.player;
+      b.time -= dt;
+      if (b.time <= 0 || p.state !== "ALIVE") {
+        removeBeam(b);
+        beams.splice(i, 1);
+        continue;
+      }
+      const pos = p.obj.mesh.position;
+      const noseX = pos.x + 0.25;
+      const endX = bounds.maxX + 5;
+      const len = endX - noseX;
+      const flick = 0.9 + 0.1 * Math.sin(b.time * 45);
+      const fade = Math.min(1, b.time / 0.25, (CONFIG.laserDuration - b.time) / 0.08 + 0.2);
+
+      b.outer.position.set(noseX + len / 2, pos.y, 0);
+      b.outer.scale.set(len, 0.7 * flick, 1);
+      b.outer.material.opacity = 0.85 * fade;
+      b.core.position.set(noseX + len / 2, pos.y, 0.01);
+      b.core.scale.set(len, 0.22 * flick, 1);
+      b.core.material.opacity = fade;
+
+      b.flare.position.set(noseX, pos.y, 0.02);
+      b.flare.scale.setScalar(0.4 * flick);
+      b.flare.material.opacity = 0.9 * fade;
+      for (const line of b.spillLines) {
+        const a = (Math.random() - 0.5) * 1.4;
+        const len2 = 0.08 + Math.random() * 0.1;
+        const pts = [
+          new THREE.Vector3(noseX, pos.y, 0.02),
+          new THREE.Vector3(noseX - Math.cos(a) * len2, pos.y + Math.sin(a) * len2, 0.02),
+        ];
+        line.geometry.setFromPoints(pts);
+        line.material.opacity = (0.4 + Math.random() * 0.4) * fade;
+      }
+
+      b.sparkTimer -= dt;
+      const sparkNow = b.sparkTimer <= 0;
+      if (sparkNow) b.sparkTimer = 0.12;
+      const hh = CONFIG.laserHalfHeight * Math.sqrt(b.powerMul);
+      GAME.Enemies.damageRect(noseX, endX, pos.y - hh, pos.y + hh, CONFIG.laserDps * b.powerMul * dt, sparkNow);
+      GAME.Hazards.damageRect(noseX, endX, pos.y - hh, pos.y + hh);
+    }
+  }
+
+  // --- Mini-nukes -------------------------------------------------------------
+  let nukes = [];
+  let shockwaves = [];
+  const shockwaveRingGeo = new THREE.RingGeometry(0.94, 1.0, 48);
+
+  function launchNuke(player, powerMul) {
+    const group = new THREE.Group();
+    const metal = new THREE.MeshStandardMaterial({ color: 0xc9ced8, metalness: 0.7, roughness: 0.35 });
+    const tint = new THREE.MeshBasicMaterial({ color: player.color });
+
+    const body = new THREE.CylinderGeometry(0.11, 0.11, 0.65, 10); body.rotateZ(-Math.PI / 2);
+    group.add(new THREE.Mesh(body, metal));
+    const nose = new THREE.ConeGeometry(0.11, 0.3, 10); nose.rotateZ(-Math.PI / 2);
+    const noseMesh = new THREE.Mesh(nose, tint);
+    noseMesh.position.set(0.47, 0, 0);
+    group.add(noseMesh);
+    for (const [y, z] of [[0.14, 0], [-0.14, 0], [0, 0.14]]) {
+      const fin = new THREE.Mesh(
+        new THREE.BoxGeometry(0.22, z ? 0.02 : 0.16, z ? 0.16 : 0.02), metal
+      );
+      fin.position.set(-0.3, y, z);
+      group.add(fin);
+    }
+    const flame = new THREE.Mesh(
+      new THREE.ConeGeometry(0.09, 0.5, 8, 1, true).rotateZ(Math.PI / 2).translate(-0.55, 0, 0),
+      new THREE.MeshBasicMaterial({
+        color: 0xffa040, transparent: true, opacity: 0.85,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      })
+    );
+    group.add(flame);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: player.color, transparent: true, opacity: 0.6,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    glow.scale.set(1.4, 1.4, 1);
+    group.add(glow);
+
+    group.scale.setScalar(0.5);
+    const start = player.obj.mesh.position;
+    group.position.set(start.x + 0.35, start.y, 0);
+    scene.add(group);
+    nukes.push({ group, flame, heading: 0, life: CONFIG.nukeLife, owner: player, age: 0, powerMul: powerMul || 1 });
+    GAME.Audio.nukeLaunch();
+  }
+
+  function detonateNuke(n) {
+    const pos = n.group.position.clone();
+    GAME.Effects.explode(pos, 0xffb060, 1.7);
+    GAME.Effects.explode(pos, n.owner.color, 1.1);
+    GAME.Audio.explosion(true);
+    const blastRadius = CONFIG.nukeBlastRadius * n.powerMul;
+    GAME.Enemies.damageCircle(pos.x, pos.y, blastRadius, CONFIG.nukeDamage);
+    GAME.Hazards.damageCircle(pos.x, pos.y, blastRadius);
+    scene.remove(n.group);
+
+    const ring = new THREE.Mesh(shockwaveRingGeo, new THREE.MeshBasicMaterial({
+      color: 0xffd9a0, transparent: true, opacity: 0.9, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    ring.position.copy(pos);
+    ring.scale.setScalar(0.01);
+    scene.add(ring);
+    shockwaves.push({ mesh: ring, life: 0.5, maxLife: 0.5, maxRadius: blastRadius });
+  }
+
+  function updateShockwaves(dt) {
+    for (let i = shockwaves.length - 1; i >= 0; i--) {
+      const s = shockwaves[i];
+      s.life -= dt;
+      const t = 1 - Math.max(0, s.life) / s.maxLife;
+      const r = Math.max(0.01, t * s.maxRadius);
+      s.mesh.scale.set(r, r, 1);
+      s.mesh.material.opacity = (1 - t) * 0.9;
+      if (s.life <= 0) {
+        scene.remove(s.mesh);
+        s.mesh.material.dispose();
+        shockwaves.splice(i, 1);
+      }
+    }
+  }
+
+  function updateNukes(dt, bounds) {
+    for (let i = nukes.length - 1; i >= 0; i--) {
+      const n = nukes[i];
+      n.age += dt;
+      n.life -= dt;
+
+      // Steer with the right stick (gamepad); keyboard flies straight.
+      const aim = GAME.Input.getAim(n.owner.source);
+      if (Math.hypot(aim.x, aim.y) > 0.4) {
+        const target = Math.atan2(aim.y, aim.x);
+        let diff = target - n.heading;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        const maxTurn = CONFIG.nukeTurnRate * dt;
+        n.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
+      }
+
+      const pos = n.group.position;
+      pos.x += Math.cos(n.heading) * CONFIG.nukeSpeed * dt;
+      pos.y += Math.sin(n.heading) * CONFIG.nukeSpeed * dt;
+      n.group.rotation.z = n.heading;
+      const f = 0.85 + 0.25 * Math.sin(n.age * 40);
+      n.flame.scale.set(f, 1, 1);
+
+      const out = pos.x > bounds.maxX + 3 || pos.x < bounds.minX - 3 ||
+                  pos.y > bounds.maxY + 3 || pos.y < bounds.minY - 3;
+      // Small arming delay so it can't pop on the launching ship's own nose.
+      const armed = n.age > 0.12;
+      if (n.life <= 0 || out ||
+          (armed && (GAME.Enemies.hitTest(pos.x, pos.y, 0.2) || GAME.Hazards.hitTest(pos.x, pos.y, 0.2)))) {
+        detonateNuke(n);
+        nukes.splice(i, 1);
+      }
+    }
+  }
+
+  // --- Teleport ---------------------------------------------------------------
+  let teleportTrails = [];
+  let teleportSwirls = [];
+  const teleportRingGeo = new THREE.RingGeometry(0.92, 1.0, 40);
+
+  function spawnTeleportTrail(a, b) {
+    // A wavy chain of small rotating puffs instead of a straight bar, so the
+    // path back to the new spot reads as "swirly."
+    const dist = a.distanceTo(b);
+    const dir = b.clone().sub(a).normalize();
+    const perp = new THREE.Vector3(-dir.y, dir.x, 0);
+    const puffCount = Math.max(5, Math.floor(dist / 0.18));
+    const puffs = [];
+    for (let i = 0; i <= puffCount; i++) {
+      const t = i / puffCount;
+      const wiggle = Math.sin(t * Math.PI * 3) * 0.18 * Math.sin(t * Math.PI); // fades at both ends
+      const pos = a.clone().lerp(b, t).add(perp.clone().multiplyScalar(wiggle));
+      const mesh = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTexture, color: TELEPORT_HOLO, transparent: true, opacity: 0.8,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }));
+      mesh.position.copy(pos);
+      mesh.scale.setScalar(0.22);
+      scene.add(mesh);
+      puffs.push(mesh);
+    }
+    teleportTrails.push({ puffs, life: 0.4, maxLife: 0.4 });
+  }
+
+  function updateTeleportTrails(dt) {
+    for (let i = teleportTrails.length - 1; i >= 0; i--) {
+      const t = teleportTrails[i];
+      t.life -= dt;
+      const opacity = Math.max(0, t.life / t.maxLife) * 0.8;
+      for (const puff of t.puffs) puff.material.opacity = opacity;
+      if (t.life <= 0) {
+        for (const puff of t.puffs) { scene.remove(puff); puff.material.dispose(); }
+        teleportTrails.splice(i, 1);
+      }
+    }
+  }
+
+  function spawnSwirl(position) {
+    const mk = (dir) => new THREE.Mesh(teleportRingGeo, new THREE.MeshBasicMaterial({
+      color: TELEPORT_HOLO, transparent: true, opacity: 0.9, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    const ringA = mk(1), ringB = mk(-1);
+    ringA.position.copy(position); ringB.position.copy(position);
+    ringA.scale.setScalar(0.01); ringB.scale.setScalar(0.01);
+    scene.add(ringA, ringB);
+    teleportSwirls.push({ ringA, ringB, life: 0.45, maxLife: 0.45, maxRadius: CONFIG.teleportRippleRadius });
+  }
+
+  function updateTeleportSwirls(dt) {
+    for (let i = teleportSwirls.length - 1; i >= 0; i--) {
+      const s = teleportSwirls[i];
+      s.life -= dt;
+      const t = 1 - Math.max(0, s.life) / s.maxLife;
+      const r = Math.max(0.01, t * s.maxRadius);
+      s.ringA.scale.setScalar(r); s.ringB.scale.setScalar(r);
+      s.ringA.rotation.z += dt * 9; s.ringB.rotation.z -= dt * 7; // counter-rotating swirl
+      const op = (1 - t) * 0.9;
+      s.ringA.material.opacity = op; s.ringB.material.opacity = op;
+      if (s.life <= 0) {
+        scene.remove(s.ringA, s.ringB);
+        s.ringA.material.dispose(); s.ringB.material.dispose();
+        teleportSwirls.splice(i, 1);
+      }
+    }
+  }
+
+  function doTeleport(player, powerMul) {
+    const bounds = GAME.getPlayBounds();
+    const from = player.obj.mesh.position.clone();
+    const toX = THREE.MathUtils.lerp(bounds.minX, bounds.maxX, CONFIG.teleportXFraction);
+    const toY = THREE.MathUtils.lerp(bounds.minY, bounds.maxY, Math.random());
+    player.obj.mesh.position.set(toX, toY, 0);
+    player.velocity.set(0, 0);
+
+    const r = CONFIG.teleportRippleRadius * (powerMul || 1);
+    for (const [x, y] of [[from.x, from.y], [toX, toY]]) {
+      GAME.Enemies.damageCircle(x, y, r, 999);
+      GAME.Enemies.clearBulletsInRadius(x, y, r);
+      GAME.Hazards.damageCircle(x, y, r);
+      spawnSwirl(new THREE.Vector3(x, y, 0));
+    }
+    spawnTeleportTrail(from, new THREE.Vector3(toX, toY, 0));
+    GAME.Audio.teleport();
+  }
+
+  // --- EMP ----------------------------------------------------------------
+  let emps = [];
+  let empBlasts = [];
+  const empLatticeGeo = new THREE.IcosahedronGeometry(1, 1);
+  const empArcCount = 10;
+
+  function launchEmp(player, powerMul) {
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(CONFIG.empRadius, 12, 12),
+      new THREE.MeshBasicMaterial({ color: EMP_HOLO, transparent: true, opacity: 0.55, wireframe: true })
+    );
+    const core = new THREE.Mesh(new THREE.SphereGeometry(CONFIG.empRadius * 0.4, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    mesh.add(core);
+    const start = player.obj.mesh.position;
+    mesh.position.set(start.x + 0.3, start.y, 0);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: EMP_HOLO, transparent: true, opacity: 0.6,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    glow.scale.setScalar(CONFIG.empRadius * 3.2);
+    mesh.add(glow);
+
+    // Crackling static: a small cloud of points jittering around the ball.
+    const staticCount = 18;
+    const positions = new Float32Array(staticCount * 3);
+    const staticGeo = new THREE.BufferGeometry();
+    staticGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    const staticPoints = new THREE.Points(staticGeo, new THREE.PointsMaterial({
+      color: 0xfff9c0, size: 0.05, transparent: true, opacity: 0.9,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    mesh.add(staticPoints);
+
+    scene.add(mesh);
+    emps.push({ mesh, staticPoints, life: CONFIG.empLife, owner: player, age: 0, powerMul: powerMul || 1 });
+    GAME.Audio.empLaunch();
+  }
+
+  function updateEmpStatic(e) {
+    const pos = e.staticPoints.geometry.attributes.position;
+    const r = CONFIG.empRadius * 1.3;
+    for (let i = 0; i < pos.count; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const rr = r * (0.7 + Math.random() * 0.4);
+      pos.setXYZ(i, rr * Math.sin(phi) * Math.cos(theta), rr * Math.sin(phi) * Math.sin(theta), rr * Math.cos(phi) * 0.4);
+    }
+    pos.needsUpdate = true;
+  }
+
+  function detonateEmp(e) {
+    const pos = e.mesh.position.clone();
+    GAME.Effects.spark(pos, EMP_HOLO);
+    GAME.Audio.empZap();
+    scene.remove(e.mesh);
+
+    // Expanding wireframe "lattice" sphere marking the blast, plus a ring
+    // of short electric-arc lines flickering around its equator.
+    const lattice = new THREE.Mesh(empLatticeGeo, new THREE.MeshBasicMaterial({
+      color: EMP_HOLO, wireframe: true, transparent: true, opacity: 0.8,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    lattice.position.copy(pos);
+    lattice.scale.setScalar(0.01);
+    scene.add(lattice);
+
+    const arcLines = [];
+    const arcGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+    for (let i = 0; i < empArcCount; i++) {
+      const line = new THREE.Line(arcGeo.clone(), new THREE.LineBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending,
+      }));
+      scene.add(line);
+      arcLines.push({ line, angle: (i / empArcCount) * Math.PI * 2 });
+    }
+
+    empBlasts.push({ pos, lattice, arcLines, life: 1.0, maxLife: 1.0, maxRadius: CONFIG.empBlastRadius * e.powerMul });
+  }
+
+  function updateEmpBlasts(dt) {
+    const EXPAND_FRACTION = 0.3; // reaches full radius in the first 30% of life, then holds
+    for (let i = empBlasts.length - 1; i >= 0; i--) {
+      const b = empBlasts[i];
+      b.life -= dt;
+      const overallT = 1 - Math.max(0, b.life) / b.maxLife;
+      const growT = Math.min(1, overallT / EXPAND_FRACTION);
+      const r = Math.max(0.01, growT * b.maxRadius);
+      b.lattice.scale.setScalar(r);
+      b.lattice.rotation.y += dt * 2;
+      b.lattice.material.opacity = (1 - overallT) * 0.7;
+      GAME.Enemies.stunAt(b.pos.x, b.pos.y, r);
+      for (const a of b.arcLines) {
+        const jitterAngle = a.angle + (Math.random() - 0.5) * 0.3;
+        const p1 = new THREE.Vector3(b.pos.x + Math.cos(jitterAngle) * r * 0.9, b.pos.y + Math.sin(jitterAngle) * r * 0.9, 0);
+        const p2 = new THREE.Vector3(b.pos.x + Math.cos(jitterAngle) * r * 1.08, b.pos.y + Math.sin(jitterAngle) * r * 1.08, 0);
+        a.line.geometry.setFromPoints([p1, p2]);
+        a.line.material.opacity = Math.random() * (1 - overallT) * 0.9;
+      }
+      if (b.life <= 0) {
+        scene.remove(b.lattice);
+        b.lattice.material.dispose();
+        for (const a of b.arcLines) { scene.remove(a.line); a.line.geometry.dispose(); a.line.material.dispose(); }
+        empBlasts.splice(i, 1);
+      }
+    }
+  }
+
+  function updateEmps(dt, bounds) {
+    for (let i = emps.length - 1; i >= 0; i--) {
+      const e = emps[i];
+      e.age += dt; e.life -= dt;
+      e.mesh.position.x += CONFIG.empSpeed * dt;
+      e.mesh.rotation.z += 4 * dt;
+      updateEmpStatic(e);
+      const out = e.mesh.position.x > bounds.maxX + 3;
+      const armed = e.age > 0.1;
+      const hitSomething = armed && GAME.Enemies.hitTest(e.mesh.position.x, e.mesh.position.y, CONFIG.empRadius);
+      if (e.life <= 0 || out || hitSomething) {
+        detonateEmp(e);
+        emps.splice(i, 1);
+      }
+    }
+    updateEmpBlasts(dt);
+  }
+
+  // --- Mines ----------------------------------------------------------------
+  let mines = [];
+  let mineBlasts = [];
+  const mineRingGeo = new THREE.RingGeometry(0.9, 1.0, 36);
+
+  function spawnMineBlastRing(pos, maxRadius) {
+    const ring = new THREE.Mesh(mineRingGeo, new THREE.MeshBasicMaterial({
+      color: 0xffcf5f, transparent: true, opacity: 0.95, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    ring.position.copy(pos);
+    ring.scale.setScalar(0.01);
+    scene.add(ring);
+    mineBlasts.push({ ring, life: 0.28, maxLife: 0.28, maxRadius });
+  }
+
+  function updateMineBlasts(dt) {
+    for (let i = mineBlasts.length - 1; i >= 0; i--) {
+      const b = mineBlasts[i];
+      b.life -= dt;
+      const t = 1 - Math.max(0, b.life) / b.maxLife;
+      const r = Math.max(0.01, t * b.maxRadius);
+      b.ring.scale.setScalar(r);
+      b.ring.material.opacity = (1 - t) * 0.95;
+      if (b.life <= 0) {
+        scene.remove(b.ring);
+        b.ring.material.dispose();
+        mineBlasts.splice(i, 1);
+      }
+    }
+  }
+
+  function buildDeployedMine(color) {
+    const metal = new THREE.MeshStandardMaterial({ color: 0x24262c, metalness: 0.6, roughness: 0.5 });
+    const group = new THREE.Group();
+    group.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.16, 0), metal));
+    const dirs = [
+      [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+      [0.7, 0.7, 0], [-0.7, 0.7, 0], [0.7, -0.7, 0], [-0.7, -0.7, 0],
+    ];
+    for (const [dx, dy, dz] of dirs) {
+      const s = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.2, 4), metal);
+      s.position.set(dx * 0.18, dy * 0.18, dz * 0.18);
+      s.lookAt(dx * 0.5, dy * 0.5, dz * 0.5);
+      s.rotateX(Math.PI / 2);
+      group.add(s);
+    }
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color, transparent: true, opacity: 0.7,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    glow.scale.set(0.5, 0.5, 1);
+    group.add(glow);
+    return { group, glow };
+  }
+
+  function dropMine(player, powerMul) {
+    const { group, glow } = buildDeployedMine(MINE_HOLO);
+    group.position.copy(player.obj.mesh.position);
+    scene.add(group);
+    mines.push({ group, glow, armTimer: CONFIG.mineArmDelay, armed: false, life: 20, powerMul: powerMul || 1 });
+  }
+
+  function updateMines(dt) {
+    for (let i = mines.length - 1; i >= 0; i--) {
+      const m = mines[i];
+      m.life -= dt;
+      m.group.rotation.y += 0.6 * dt;
+      const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.006);
+      m.glow.material.opacity = m.armed ? pulse : 0.35;
+
+      if (!m.armed) {
+        m.armTimer -= dt;
+        if (m.armTimer <= 0) { m.armed = true; GAME.Audio.mineArm(); }
+      } else {
+        const p = m.group.position;
+        const triggerR = CONFIG.mineTriggerRadius * m.powerMul;
+        const chainR = CONFIG.mineChainRadius * m.powerMul;
+        if (GAME.Enemies.chainKill(p.x, p.y, triggerR, chainR)) {
+          GAME.Effects.explode(p.clone(), MINE_HOLO, 1.2);
+          GAME.Audio.explosion(true);
+          GAME.Hazards.damageCircle(p.x, p.y, triggerR);
+          spawnMineBlastRing(p.clone(), chainR);
+          scene.remove(m.group);
+          mines.splice(i, 1);
+          continue;
+        }
+      }
+      if (m.life <= 0) { scene.remove(m.group); mines.splice(i, 1); }
+    }
+    updateMineBlasts(dt);
+  }
+
+  // --- Reflector shield -------------------------------------------------------
+  let shields = [];
+
+  function buildShieldMesh() {
+    // A solid glowing panel (rounded via a stretched capsule-ish shape),
+    // not a shape surrounding the ship — it only guards the front.
+    const geo = new THREE.CapsuleGeometry
+      ? new THREE.CapsuleGeometry(0.16, CONFIG.shieldPanelHeight - 0.32, 4, 8)
+      : new THREE.CylinderGeometry(0.16, 0.16, CONFIG.shieldPanelHeight, 10); // fallback for older three builds
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      color: SHIELD_HOLO, transparent: true, opacity: 0.85,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: SHIELD_HOLO, transparent: true, opacity: 0.5,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    glow.scale.setScalar(CONFIG.shieldPanelHeight * 1.6);
+    mesh.add(glow);
+    return mesh;
+  }
+
+  function activateShield(player, powerMul) {
+    player.shieldTimer = CONFIG.shieldDuration;
+    GAME.Audio.shieldUp();
+    const mesh = buildShieldMesh();
+    mesh.scale.setScalar(powerMul || 1);
+    scene.add(mesh);
+    shields.push({ player, mesh, powerMul: powerMul || 1 });
+  }
+
+  function updateShields(dt) {
+    for (let i = shields.length - 1; i >= 0; i--) {
+      const s = shields[i];
+      const p = s.player;
+      if (p.shieldTimer <= 0 || p.state !== "ALIVE") {
+        if (p.shieldTimer <= 0) GAME.Audio.shieldDown();
+        scene.remove(s.mesh);
+        s.mesh.material.dispose();
+        shields.splice(i, 1);
+        continue;
+      }
+      p.shieldTimer -= dt;
+      const pp = p.obj.mesh.position;
+      s.mesh.position.set(pp.x + CONFIG.shieldOffsetX, pp.y, 0.02);
+      const flicker = 0.85 + 0.15 * Math.sin(p.shieldTimer * 14);
+      const fadeIn = Math.min(1, (CONFIG.shieldDuration - p.shieldTimer) / 0.15);
+      const fadeOut = Math.min(1, p.shieldTimer / 0.3);
+      s.mesh.material.opacity = 0.85 * flicker * fadeIn * fadeOut;
+    }
+  }
+
+  // --- Firing input + top-level update ---------------------------------------
+  function consumeAmmo(player) {
+    const slot = player.weapons[0];
+    slot.ammo -= 1;
+    if (slot.ammo <= 0) player.weapons.shift();
+    GAME.Players.refreshChip(player);
+  }
+
+  function update(dt) {
+    const bounds = GAME.getPlayBounds();
+    updatePickups(dt, bounds);
+
+    for (const p of GAME.Players.list()) {
+      if (p.weapons.length > 1 && GAME.Input.isSwapPressedEdge(p.source)) {
+        p.weapons.push(p.weapons.shift());
+        GAME.Players.refreshChip(p);
+      }
+      // Always read the edge so it stays accurate, then decide whether to act.
+      const pressed = GAME.Input.isSpecialPressedEdge(p.source);
+      if (!pressed || p.state !== "ALIVE") continue;
+
+      // An in-flight EMP always takes priority over the weapon slot check —
+      // ammo is spent at launch, which can pop "emp" out of weapons[0]
+      // before the detonate press happens, so this can't depend on that slot.
+      const ownedEmp = emps.find((e) => e.owner === p);
+      if (ownedEmp) {
+        detonateEmp(ownedEmp);
+        emps.splice(emps.indexOf(ownedEmp), 1);
+        continue;
+      }
+
+      if (p.weapons.length === 0) continue;
+      const powerMul = GAME.Formations.getPowerMultiplier(p.formation);
+      const slot = p.weapons[0];
+      if (slot.type === "laser") {
+        if (!beams.some((b) => b.player === p)) { startBeam(p, powerMul); consumeAmmo(p); }
+      } else if (slot.type === "nuke") {
+        launchNuke(p, powerMul);
+        consumeAmmo(p);
+      } else if (slot.type === "teleport") {
+        doTeleport(p, powerMul);
+        consumeAmmo(p);
+      } else if (slot.type === "emp") {
+        launchEmp(p, powerMul);
+        consumeAmmo(p);
+      } else if (slot.type === "mine") {
+        dropMine(p, powerMul);
+        consumeAmmo(p);
+      } else if (slot.type === "shield") {
+        if (p.shieldTimer <= 0) {
+          activateShield(p, powerMul);
+          consumeAmmo(p);
+        }
+      }
+    }
+
+    updateBeams(dt, bounds);
+    updateNukes(dt, bounds);
+    updateShockwaves(dt);
+    updateEmps(dt, bounds);
+    updateMines(dt);
+    updateShields(dt);
+    updateTeleportTrails(dt);
+    updateTeleportSwirls(dt);
+  }
+
+  function resetAll() {
+    for (const pk of pickups) scene.remove(pk.root);
+    for (const b of beams) removeBeam(b);
+    for (const n of nukes) scene.remove(n.group);
+    for (const s of shockwaves) { scene.remove(s.mesh); s.mesh.material.dispose(); }
+    for (const e of emps) scene.remove(e.mesh);
+    for (const b of empBlasts) {
+      scene.remove(b.lattice); b.lattice.material.dispose();
+      for (const a of b.arcLines) { scene.remove(a.line); a.line.geometry.dispose(); a.line.material.dispose(); }
+    }
+    for (const m of mines) scene.remove(m.group);
+    for (const b of mineBlasts) { scene.remove(b.ring); b.ring.material.dispose(); }
+    for (const s of shields) { scene.remove(s.mesh); s.mesh.material.dispose(); }
+    for (const t of teleportTrails) for (const puff of t.puffs) { scene.remove(puff); puff.material.dispose(); }
+    for (const s of teleportSwirls) {
+      scene.remove(s.ringA, s.ringB);
+      s.ringA.material.dispose(); s.ringB.material.dispose();
+    }
+    pickups = []; beams = []; nukes = []; shockwaves = [];
+    emps = []; empBlasts = []; mines = []; mineBlasts = [];
+    shields = []; teleportTrails = []; teleportSwirls = [];
+    pickupTimer = THREE.MathUtils.randFloat(CONFIG.pickupSpawnMin, CONFIG.pickupSpawnMax);
+  }
+
+  GAME.Weapons = { update, resetAll };
+})();
+
+
+// ===========================================================================
+// MENU — the animated "Super Ship Shooters" title/start screen and the
+// game-over screen. Doesn't own game state itself (main.js does that);
+// just exposes show/hide and a "did someone press start" check.
+// ===========================================================================
+(function () {
+  const menuEl = document.getElementById("menu-overlay");
+  const gameOverEl = document.getElementById("gameover-overlay");
+
+  function showMenu(show) { menuEl.classList.toggle("hidden", !show); }
+  function showGameOver(show) { gameOverEl.classList.toggle("hidden", !show); }
+
+  // Returns the source ("keyboard" or a gamepad index) that just pressed
+  // start/continue this frame, or null. Checking every source once per
+  // frame here is safe as long as nothing else reads the same edge this
+  // same frame (Players.scanForJoins only runs during PLAYING).
+  function checkStartPress() {
+    if (GAME.Input.isJoinPressedEdge("keyboard")) return "keyboard";
+    if (GAME.Input.isJoinPressedEdge("touch")) return "touch";
+    for (const idx of GAME.Input.connectedGamepadIndices()) {
+      if (GAME.Input.isJoinPressedEdge(idx)) return idx;
+    }
+    return null;
+  }
+
+  GAME.Menu = { showMenu, showGameOver, checkStartPress };
+})();
+
+
+// ===========================================================================
+// MAIN — game state machine (MENU / PLAYING / GAMEOVER) and the render
+// loop. Movement/lives/respawn logic itself lives in players.js; this file
+// just decides which state we're in and what runs each frame.
+// ===========================================================================
+(function () {
+  GAME.prewarmBullets();
+
+  const scoreValueEl = document.getElementById("score-value");
+  let score = 0;
+  function refreshScoreHUD() { scoreValueEl.textContent = String(score); }
+  GAME.Score = {
+    add(amount) { score += amount; refreshScoreHUD(); },
+    reset() { score = 0; refreshScoreHUD(); },
+  };
+
+  let state = "MENU";
+  let paused = false;
+  const clock = new THREE.Clock();
+
+  function quitToMenu() {
+    GAME.Players.resetAll();
+    GAME.Formations.resetAll();
+    GAME.Enemies.resetAll();
+    GAME.Hazards.resetAll();
+    GAME.Weapons.resetAll();
+    GAME.Effects.clear();
+    paused = false;
+    document.getElementById("pause-overlay").classList.add("hidden");
+    state = "MENU";
+  }
+
+  const pauseOverlayEl = document.getElementById("pause-overlay");
+  document.getElementById("btn-pause").addEventListener("click", () => {
+    if (state === "PLAYING") paused = !paused;
+  });
+  document.getElementById("btn-resume").addEventListener("click", () => { paused = false; });
+  document.getElementById("btn-quit").addEventListener("click", quitToMenu);
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+
+    GAME.updateBackground(dt);
+    GAME.Effects.update(dt);
+
+    if (state === "PLAYING" && GAME.Input.isPausePressedEdge()) {
+      paused = !paused;
+    }
+    pauseOverlayEl.classList.toggle("hidden", !(state === "PLAYING" && paused));
+
+    if (state === "PLAYING" && paused) {
+      GAME.renderer.render(GAME.scene, GAME.camera);
+      return;
+    }
+
+    if (state === "MENU") {
+      GAME.Menu.showMenu(true);
+      GAME.Menu.showGameOver(false);
+      const startSource = GAME.Menu.checkStartPress();
+      if (startSource !== null) {
+        GAME.Players.resetAll();
+        GAME.Formations.resetAll();
+        GAME.Enemies.resetAll();
+        GAME.Hazards.resetAll();
+        GAME.Weapons.resetAll();
+        GAME.Effects.clear();
+        GAME.Score.reset();
+        GAME.Players.join(startSource);
+        state = "PLAYING";
+      }
+    } else if (state === "PLAYING") {
+      GAME.Menu.showMenu(false);
+      GAME.Menu.showGameOver(false);
+      GAME.Players.updateAll(dt);
+      GAME.Formations.update(dt);
+      GAME.updateBullets(dt);
+      GAME.Weapons.update(dt);
+      GAME.Enemies.updateAll(dt);
+      GAME.Hazards.updateAll(dt);
+      // TEMP DEBUG: press K to damage every active player by one life.
+      // Remove once Pass 3/4 add real damage sources (enemies, asteroids).
+      if (GAME.Input.isKeyPressedEdge("KeyK")) {
+        for (const p of GAME.Players.list()) GAME.Players.takeDamage(p);
+      }
+      if (GAME.Players.allOut()) {
+        state = "GAMEOVER";
+      }
+    } else if (state === "GAMEOVER") {
+      GAME.Menu.showGameOver(true);
+      // Literal "hit enter" from the spec — keyboard only for this one.
+      if (GAME.Input.isJoinPressedEdge("keyboard")) {
+        GAME.Players.resetAll();
+        GAME.Formations.resetAll();
+        GAME.Enemies.resetAll();
+        GAME.Hazards.resetAll();
+        GAME.Weapons.resetAll();
+        GAME.Effects.clear();
+        state = "MENU";
+      }
+    }
+
+    GAME.renderer.render(GAME.scene, GAME.camera);
+  }
+
+  animate();
+})();
+
+</script>
+</body>
+</html>
