@@ -723,7 +723,7 @@
 <div id="pause-overlay" class="overlay hidden">
   <div class="gameover-title" style="color:#eaf6ff; text-shadow:0 0 20px rgba(95,208,255,0.6);">PAUSED</div>
   <button id="btn-resume" class="menu-btn">Resume</button>
-  <div class="sound-toggles"><button id="btn-music" class="menu-btn sound-btn" type="button">Music: ON</button><button id="btn-voice" class="menu-btn sound-btn" type="button" hidden>Voice: ON</button></div>
+  <div class="sound-toggles"><button id="btn-gfx" class="menu-btn sound-btn" type="button">Graphics</button><button id="btn-music" class="menu-btn sound-btn" type="button">Music: ON</button><button id="btn-voice" class="menu-btn sound-btn" type="button" hidden>Voice: ON</button></div>
   <button class="menu-btn sound-btn" type="button" data-controls>Controls</button>
   <button id="btn-quit" class="menu-btn menu-btn-danger">Quit to Menu</button>
   <div class="prompt-text">Esc or Start to resume</div>
@@ -2225,14 +2225,24 @@ GAME.CONFIG = {
 
 
 // ===========================================================================
-// GFX — one fixed look: the original ships and materials, with the soft
-// nebula background, glowing sparks/fireballs and explosion lights. (The
-// old Low/Medium/High switch, hull-detail shader and film pass are gone.)
+// GFX — two looks, switched live from the pause menu and remembered:
+//   "new"     — soft nebula background, glowing sparks/fireballs, explosion
+//               lights, ship flair and the 3D ship shading / tilt
+//   "classic" — the original graphics, exactly as they were
+// Other modules read GAME.Gfx.enhanced() / level() or register with onChange().
 // Phones get fewer particles and no explosion lights.
 // ===========================================================================
 (function () {
   const scene = GAME.scene;
-  const lvl = GAME.isTouch ? 1 : 3;
+  const KEY = "superShipShooters.gfx2";
+  const MODES = ["new", "classic"], LABELS = { new: "New", classic: "Original" };
+  let mode = null;
+  try { mode = localStorage.getItem(KEY); } catch (e) {}
+  const forced = new URLSearchParams(location.search).get("gfx");
+  if (MODES.includes(forced)) mode = forced;
+  if (!MODES.includes(mode)) mode = "new";
+  const listeners = [];
+  const uS3d = { value: mode === "new" ? 1 : 0 };
   const lights = [];
   for (let i = 0; i < (GAME.isTouch ? 0 : 4); i++) {
     const light = new THREE.PointLight(0xffffff, 0, 9, 2);
@@ -2242,7 +2252,7 @@ GAME.CONFIG = {
   }
   // Light up whatever is near `pos` for a moment (explosions, big hits).
   function flash(pos, color, power, duration, radius) {
-    if (!lights.length) return;
+    if (!lights.length || mode !== "new") return;
     let best = lights[0];
     for (const l of lights) if (l.light.intensity < best.light.intensity) best = l;
     best.light.color.set(color);
@@ -2260,6 +2270,13 @@ GAME.CONFIG = {
       if (l.life <= 0) { l.light.intensity = 0; l.light.position.set(0, -500, 0); }
     }
   }
+  function set(m) {
+    if (!MODES.includes(m) || m === mode) return;
+    mode = m; uS3d.value = mode === "new" ? 1 : 0;
+    try { localStorage.setItem(KEY, mode); } catch (e) {}
+    for (const l of lights) { l.life = 0; l.light.intensity = 0; }
+    for (const fn of listeners) { try { fn(mode); } catch (e) { console.warn("gfx listener:", e && e.message); } }
+  }
   // "3D look" shading for a material, with no textures and no blur:
   //   form — self-lit paint is shaded by a fixed key light (bright on top,
   //          darker underneath), so the hull reads as a shaped solid
@@ -2270,8 +2287,9 @@ GAME.CONFIG = {
     const form = o.form ? 1 : 0, rim = new THREE.Color(o.rim === undefined ? 0x9fd0ff : o.rim), rs = o.rimStrength === undefined ? 0.5 : o.rimStrength;
     const key = "s3d:" + form + ":" + rim.getHexString() + ":" + rs;
     mat.onBeforeCompile = function (shader) {
-      shader.fragmentShader = shader.fragmentShader.replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
-  {
+      shader.uniforms.uS3d = uS3d;
+      shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\nuniform float uS3d;").replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+  if (uS3d > 0.0) {
     float s3dNdl = clamp(dot(normal, normalize(vec3(0.3, 0.72, 0.62))), 0.0, 1.0);
     float s3dUnder = clamp(dot(normal, normalize(vec3(-0.2, -0.8, 0.55))), 0.0, 1.0);
     ${form ? "totalEmissiveRadiance *= 0.22 + 1.12 * s3dNdl * s3dNdl + 0.14 * s3dUnder;" : ""}
@@ -2285,8 +2303,9 @@ GAME.CONFIG = {
   }
   GAME.shade3D = shade3D;
   GAME.Gfx = {
-    mode: () => "standard", level: () => lvl, enhanced: () => true, label: () => "Standard",
-    set() {}, cycle() {}, onChange: (fn) => { fn("standard"); },
+    mode: () => mode, level: () => (mode === "new" ? (GAME.isTouch ? 1 : 3) : 0), enhanced: () => mode === "new", label: () => LABELS[mode],
+    set, cycle: () => set(mode === "new" ? "classic" : "new"),
+    onChange: (fn) => { listeners.push(fn); fn(mode); },
     flash, update,
   };
 })();
@@ -2833,7 +2852,7 @@ GAME.CONFIG = {
     // --- Fuselage (flattened in depth so it reads as a sleek fighter) ---
     const hull = new THREE.Mesh(makeHullGeometry(), paintMat);
     hull.rotation.z = -Math.PI / 2;
-    hull.scale.z = 0.95;
+    hull.scale.z = 0.72;
     group.add(hull);
 
     // --- Dorsal armour plate facing the camera ---
@@ -2855,7 +2874,8 @@ GAME.CONFIG = {
     group.add(canopyFrame);
 
     // --- Wings: painted base, gunmetal inset panel, glowing leading edge ---
-    const wingExtrude = { depth: 0.05, bevelEnabled: true, bevelThickness: 0.022, bevelSize: 0.02, bevelSegments: 2 };
+    const wingPivots = [];
+    const wingExtrude = { depth: 0.045, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.01, bevelSegments: 1 };
     for (const sign of [1, -1]) {
       const wing = new THREE.Mesh(new THREE.ExtrudeGeometry(makeWingShape(sign, false), wingExtrude), wingMat);
       wing.position.z = -0.03;
@@ -2878,7 +2898,7 @@ GAME.CONFIG = {
       const wingPivot = new THREE.Group();
       wingPivot.position.y = 0.07 * sign;
       for (const part of [wing, inset, strip, barrel, muzzle]) { part.position.y -= 0.07 * sign; wingPivot.add(part); }
-      wingPivot.rotation.x = sign * 0.3;
+      wingPivot.userData.sign = sign; wingPivots.push(wingPivot);
       group.add(wingPivot);
     }
 
@@ -2952,15 +2972,22 @@ GAME.CONFIG = {
       both((sg) => add(new THREE.BoxGeometry(0.24, 0.014, 0.07), gunmetal, -0.14, 0.36 * sg, 0.05));
     }
     group.add(flair);
-    GAME.Gfx.onChange((mode) => { flair.visible = mode !== "classic"; });
+
 
     // 3/4 view: the whole hull is tipped back a little so you see its top and
     // its near side instead of a flat plan view. Lives in an inner group, so
     // the banking / dodge rotations on the outer mesh work exactly as before.
     const tilt = new THREE.Group();
     for (const ch of group.children.slice()) if (ch !== glowSprite) tilt.add(ch);
-    tilt.rotation.x = -GAME.CONFIG.shipTilt;
     group.add(tilt);
+    // New look only: tilt, wing dihedral, rounder hull and flair. Original: flat, as before.
+    GAME.Gfx.onChange((mode) => {
+      const on = mode !== "classic";
+      flair.visible = on;
+      if (!tilt.userData.flat) tilt.rotation.x = on ? -GAME.CONFIG.shipTilt : 0;
+      for (const wp of wingPivots) wp.rotation.x = on ? wp.userData.sign * 0.3 : 0;
+      hull.scale.z = on ? 0.95 : 0.72;
+    });
 
     group.scale.setScalar(GAME.CONFIG.shipVisualScale);
     return {
@@ -11755,7 +11782,7 @@ GAME.CONFIG = {
   const ships = CONFIG.playerColors.map((color, i) => {
     const obj = GAME.buildShip(color);
     obj.mesh.rotation.x = -Math.PI / 2;            // top of the ship faces up
-    obj.tilt.rotation.x = 0;
+    obj.tilt.userData.flat = true; obj.tilt.rotation.x = 0;
     const g = new THREE.Group();
     g.add(obj.mesh);
     g.scale.setScalar(2.0);
@@ -12474,6 +12501,10 @@ GAME.CONFIG = {
   }
 
   // Sound toggles (remembered between visits).
+  // Graphics: New look ⇄ Original. Remembered between visits.
+  const gfxBtn = document.getElementById("btn-gfx");
+  gfxBtn.addEventListener("click", () => { GAME.Gfx.cycle(); gfxBtn.blur(); });
+  GAME.Gfx.onChange(() => { gfxBtn.textContent = "Graphics: " + GAME.Gfx.label(); });
   const musicBtn = document.getElementById("btn-music"), voiceBtn = document.getElementById("btn-voice");
   function refreshSoundBtns() {
     musicBtn.textContent = "Music: " + (GAME.Music.isOn() ? "ON" : "OFF");
