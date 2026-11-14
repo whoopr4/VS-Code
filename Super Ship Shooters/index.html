@@ -723,7 +723,7 @@
 <div id="pause-overlay" class="overlay hidden">
   <div class="gameover-title" style="color:#eaf6ff; text-shadow:0 0 20px rgba(95,208,255,0.6);">PAUSED</div>
   <button id="btn-resume" class="menu-btn">Resume</button>
-  <div class="sound-toggles"><button id="btn-gfx" class="menu-btn sound-btn" type="button">Graphics</button><button id="btn-music" class="menu-btn sound-btn" type="button">Music: ON</button><button id="btn-voice" class="menu-btn sound-btn" type="button" hidden>Voice: ON</button></div>
+  <div class="sound-toggles"><button id="btn-music" class="menu-btn sound-btn" type="button">Music: ON</button><button id="btn-voice" class="menu-btn sound-btn" type="button" hidden>Voice: ON</button></div>
   <button class="menu-btn sound-btn" type="button" data-controls>Controls</button>
   <button id="btn-quit" class="menu-btn menu-btn-danger">Quit to Menu</button>
   <div class="prompt-text">Esc or Start to resume</div>
@@ -1816,7 +1816,7 @@ GAME.CONFIG = {
   enemyMediumFireInterval: 0.55,
   enemyBulletSpeed: 6,
   stingerSpeed: 28,                   // Wasp stinger — the fastest projectile in the game
-  beeSpeed: 4.6, beeLife: 16, beeMax: 10,
+  beeSpeed: 4.6, beeLife: 16, beeMax: 16, waxBlastRadius: 0.8,
   beeSlowOne: 0.85, beeSlowTwo: 0.45, // ship speed with one / two-or-more bugs attached
   beeStingTime: 6,                    // seconds with 2+ attached before they sting (1 bar) and drop off
   enemyBulletColor: 0xff2b2b,
@@ -1966,6 +1966,8 @@ GAME.CONFIG = {
   dodgeDepth: 3.2,                    // how far the loop dives back into the screen
   dodgeCooldown: 4.0,                 // one roll every 4 seconds (thrusters recharge)
   dodgeImpulse: 7,
+  shipTilt: 0.45,                     // resting 3/4-view tilt of every player ship (radians)
+  dodgeSteer: 0.7,                    // how far (radians) you can bend a dodge's path by steering during it
   dodgeDistance: 3.4,                 // every dodge travels exactly this far in the held direction
   dodgeExitSpeed: 2.2,                // speed you come out of the dodge with (same direction)
   beaconDuration: 1.6,
@@ -2223,113 +2225,24 @@ GAME.CONFIG = {
 
 
 // ===========================================================================
-// GFX — graphics modes. "classic" is the original look, untouched. The
-// enhanced look comes in three quality levels:
-//   low    — new sparks/explosions, new background, ship flair (phones)
-//   medium — + hull surface detail (panel lines, wear, form shading),
-//            film colour grade + vignette, 2 explosion lights
-//   high   — + 5 explosion lights, film grain, smoke, denser particles
-// Everything switches live from the pause menu; other modules read
-// GAME.Gfx.enhanced() / level() or register with onChange().
+// GFX — one fixed look: the original ships and materials, with the soft
+// nebula background, glowing sparks/fireballs and explosion lights. (The
+// old Low/Medium/High switch, hull-detail shader and film pass are gone.)
+// Phones get fewer particles and no explosion lights.
 // ===========================================================================
 (function () {
-  const KEY = "superShipShooters.gfx";
-  const MODES = ["classic", "low", "medium", "high"];
-  const LABELS = { classic: "Classic", low: "Enhanced · Low", medium: "Enhanced · Medium", high: "Enhanced · High" };
-  let mode = null;
-  try { mode = localStorage.getItem(KEY); } catch (e) {}
-  const forced = new URLSearchParams(location.search).get("gfx");
-  if (MODES.includes(forced)) mode = forced;
-  if (!MODES.includes(mode)) mode = GAME.isTouch ? "low" : "high";
-  const listeners = [];
-  const level = () => MODES.indexOf(mode);          // 0 classic … 3 high
-  const scene = GAME.scene, renderer = GAME.renderer;
-
-  // --- Hull surface detail, injected into every standard material ---------
-  // Works in object space (no UVs needed): plated panel lines, paint wear,
-  // roughness variation, and form shading for the self-lit player paint.
-  // uSsd = 0 leaves the material exactly as before (Classic / Low).
-  const uSsd = { value: 0 };
-  if (renderer.capabilities.isWebGL2) {
-    const VERT_DECL = "varying vec3 vSsdPos;\nvarying vec3 vSsdNrm;\n";
-    const FRAG_DECL = `
-uniform float uSsd;
-varying vec3 vSsdPos;
-varying vec3 vSsdNrm;
-float ssdHash(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
-float ssdNoise(vec3 x){ vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(mix(ssdHash(i), ssdHash(i + vec3(1,0,0)), f.x), mix(ssdHash(i + vec3(0,1,0)), ssdHash(i + vec3(1,1,0)), f.x), f.y),
-             mix(mix(ssdHash(i + vec3(0,0,1)), ssdHash(i + vec3(1,0,1)), f.x), mix(ssdHash(i + vec3(0,1,1)), ssdHash(i + vec3(1,1,1)), f.x), f.y), f.z); }
-// Staggered plating: 1 on a seam, 0 inside a panel; seam width follows screen resolution so it never shimmers.
-float ssdPlates(vec2 uv){
-  uv.x += floor(uv.y) * 0.5;
-  vec2 g = abs(fract(uv) - 0.5);
-  vec2 w = fwidth(uv) * 1.2 + 0.012;
-  vec2 e = smoothstep(0.5 - w, vec2(0.5), g);
-  float fade = 1.0 - smoothstep(0.18, 0.45, max(w.x, w.y));   // too small on screen: fade the seams out
-  return max(e.x, e.y) * fade;
-}
-`;
-    THREE.MeshStandardMaterial.prototype.onBeforeCompile = function (shader) {
-      const rock = this.userData && this.userData.detail === "rock";
-      shader.uniforms.uSsd = uSsd;
-      shader.vertexShader = shader.vertexShader
-        .replace("#include <common>", "#include <common>\n" + VERT_DECL)
-        .replace("#include <begin_vertex>", "#include <begin_vertex>\nvSsdPos = position;\nvSsdNrm = normal;");
-      const body = rock ? `
-  float ssdLine = 0.0, ssdWear = 0.5;
-  if (uSsd > 0.0) {
-    float big = ssdNoise(vSsdPos * 2.3), fine = ssdNoise(vSsdPos * 9.0), grit = ssdNoise(vSsdPos * 27.0);
-    ssdWear = big * 0.5 + fine * 0.35 + grit * 0.15;
-    float crater = smoothstep(0.62, 0.7, fine) * 0.55;
-    diffuseColor.rgb *= mix(1.0, (0.45 + 1.0 * ssdWear) * (1.0 - crater), uSsd);
-    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.12, 0.98, 0.86), uSsd * big);
-  }
-` : `
-  float ssdLine = 0.0, ssdWear = 0.5;
-  if (uSsd > 0.0) {
-    vec3 n = abs(vSsdNrm); if (dot(n, n) < 1e-6) n = vec3(0.577);
-    n = normalize(n); n = n * n * n * n; n /= (n.x + n.y + n.z + 1e-4);
-    vec3 q = vSsdPos * 3.4;
-    ssdLine = ssdPlates(q.yz) * n.x + ssdPlates(q.xz) * n.y + ssdPlates(q.xy * vec2(1.0, 1.6)) * n.z;
-    ssdWear = ssdNoise(vSsdPos * 7.0) * 0.6 + ssdNoise(vSsdPos * 23.0) * 0.4;
-    diffuseColor.rgb *= mix(1.0, 0.4, ssdLine * uSsd) * (1.0 - 0.3 * uSsd * (ssdWear - 0.35));
-  }
-`;
-      shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", "#include <common>\n" + FRAG_DECL)
-        .replace("#include <color_fragment>", "#include <color_fragment>\n" + body)
-        .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = clamp(roughnessFactor + uSsd * ((ssdWear - 0.5) * 0.45 + ssdLine * 0.3), 0.04, 1.0);")
-        .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
-  if (uSsd > 0.0) {
-    // Self-lit paint gets seams, wear and a soft key light so it reads as a shaped, painted surface.
-    float ssdNdl = clamp(dot(normal, normalize(vec3(0.35, 0.6, 0.72))), 0.0, 1.0);
-    totalEmissiveRadiance *= mix(1.0, (0.42 + 0.78 * ssdNdl) * mix(1.0, 0.3, ssdLine) * (1.0 - 0.3 * (ssdWear - 0.35)), uSsd);
-  }`);
-    };
-    THREE.MeshStandardMaterial.prototype.customProgramCacheKey = function () {
-      return "ssd:" + ((this.userData && this.userData.detail) || "hull");
-    };
-  }
-
-  // --- Explosion lights: a small pool of point lights that flash and fade --
+  const scene = GAME.scene;
+  const lvl = GAME.isTouch ? 1 : 3;
   const lights = [];
-  let nextLight = 0;
-  function sizeLightPool() {
-    const want = mode === "high" ? 5 : mode === "medium" ? 2 : 0;
-    while (lights.length > want) { const l = lights.pop(); scene.remove(l.light); }
-    while (lights.length < want) {
-      const light = new THREE.PointLight(0xffffff, 0, 9, 2);
-      light.position.set(0, -500, 0);
-      scene.add(light);
-      lights.push({ light, life: 0, maxLife: 1, power: 0 });
-    }
-    nextLight = 0;
+  for (let i = 0; i < (GAME.isTouch ? 0 : 4); i++) {
+    const light = new THREE.PointLight(0xffffff, 0, 9, 2);
+    light.position.set(0, -500, 0);
+    scene.add(light);
+    lights.push({ light, life: 0, maxLife: 1, power: 0 });
   }
   // Light up whatever is near `pos` for a moment (explosions, big hits).
   function flash(pos, color, power, duration, radius) {
     if (!lights.length) return;
-    // Reuse the dimmest light.
     let best = lights[0];
     for (const l of lights) if (l.light.intensity < best.light.intensity) best = l;
     best.light.color.set(color);
@@ -2338,46 +2251,7 @@ float ssdPlates(vec2 uv){
     best.power = power; best.life = best.maxLife = duration || 0.4;
     best.light.intensity = power;
   }
-
-  // --- Film finish: colour grade, vignette and (High) grain ---------------
-  let finishPass = null;
-  if (GAME.composer && THREE.ShaderPass) {
-    finishPass = new THREE.ShaderPass({
-      uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uGrain: { value: 0 } },
-      vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
-      fragmentShader: `
-uniform sampler2D tDiffuse; uniform float uTime; uniform float uGrain; varying vec2 vUv;
-void main(){
-  vec4 c = texture2D(tDiffuse, vUv); vec3 col = c.rgb;
-  col = mix(col, col * col * (3.0 - 2.0 * col), 0.32);                         // gentle film contrast
-  float l = dot(col, vec3(0.299, 0.587, 0.114));
-  col += mix(vec3(-0.010, 0.000, 0.018), vec3(0.022, 0.008, -0.016), l);       // cool shadows, warm highlights
-  col = mix(vec3(l), col, 1.08);                                               // a touch more colour
-  vec2 q = vUv - 0.5; col *= 1.0 - dot(q, q) * 0.5;                            // vignette
-  float n = fract(sin(dot(vUv * vec2(1733.0, 977.0) + uTime * 37.0, vec2(12.9898, 78.233))) * 43758.5453);
-  col += (n - 0.5) * uGrain;
-  gl_FragColor = vec4(max(col, 0.0), c.a);
-}`,
-    });
-    GAME.composer.addPass(finishPass);
-  }
-
-  function apply() {
-    uSsd.value = level() >= 2 ? 1 : 0;
-    if (finishPass) { finishPass.enabled = level() >= 2; finishPass.uniforms.uGrain.value = mode === "high" ? 0.03 : 0; }
-    sizeLightPool();
-    for (const fn of listeners) { try { fn(mode); } catch (e) { console.warn("gfx listener:", e && e.message); } }
-  }
-  function set(m) {
-    if (!MODES.includes(m) || m === mode) return;
-    mode = m;
-    try { localStorage.setItem(KEY, mode); } catch (e) {}
-    apply();
-  }
-  let time = 0;
   function update(dt) {
-    time += dt;
-    if (finishPass) finishPass.uniforms.uTime.value = time % 100;
     for (const l of lights) {
       if (l.life <= 0) continue;
       l.life -= dt;
@@ -2386,13 +2260,35 @@ void main(){
       if (l.life <= 0) { l.light.intensity = 0; l.light.position.set(0, -500, 0); }
     }
   }
+  // "3D look" shading for a material, with no textures and no blur:
+  //   form — self-lit paint is shaded by a fixed key light (bright on top,
+  //          darker underneath), so the hull reads as a shaped solid
+  //   rim  — a thin light catches the edges that turn away from the camera
+  // The camera never moves, so both are worked out in view space.
+  function shade3D(mat, opts) {
+    const o = opts || {};
+    const form = o.form ? 1 : 0, rim = new THREE.Color(o.rim === undefined ? 0x9fd0ff : o.rim), rs = o.rimStrength === undefined ? 0.5 : o.rimStrength;
+    const key = "s3d:" + form + ":" + rim.getHexString() + ":" + rs;
+    mat.onBeforeCompile = function (shader) {
+      shader.fragmentShader = shader.fragmentShader.replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+  {
+    float s3dNdl = clamp(dot(normal, normalize(vec3(0.3, 0.72, 0.62))), 0.0, 1.0);
+    float s3dUnder = clamp(dot(normal, normalize(vec3(-0.2, -0.8, 0.55))), 0.0, 1.0);
+    ${form ? "totalEmissiveRadiance *= 0.22 + 1.12 * s3dNdl * s3dNdl + 0.14 * s3dUnder;" : ""}
+    float s3dRim = pow(1.0 - clamp(normal.z, 0.0, 1.0), 2.6);
+    totalEmissiveRadiance += vec3(${rim.r.toFixed(3)}, ${rim.g.toFixed(3)}, ${rim.b.toFixed(3)}) * s3dRim * ${rs.toFixed(3)} * (0.35 + 0.65 * s3dNdl);
+  }`);
+    };
+    mat.customProgramCacheKey = () => key;
+    mat.needsUpdate = true;
+    return mat;
+  }
+  GAME.shade3D = shade3D;
   GAME.Gfx = {
-    mode: () => mode, level, enhanced: () => mode !== "classic", label: () => LABELS[mode],
-    set, cycle: () => set(MODES[(level() + 1) % MODES.length]),
-    onChange: (fn) => { listeners.push(fn); fn(mode); },
+    mode: () => "standard", level: () => lvl, enhanced: () => true, label: () => "Standard",
+    set() {}, cycle() {}, onChange: (fn) => { fn("standard"); },
     flash, update,
   };
-  apply();
 })();
 
 
@@ -2924,6 +2820,9 @@ void main(){
       color: 0x06202c, metalness: 0.3, roughness: 0.05, emissive: 0x2fbfff, emissiveIntensity: 0.22,
       envMapIntensity: 1.2,
     });
+    { const rimCol = col.clone().lerp(new THREE.Color(0xffffff), 0.55);
+      for (const mm of [paintMat, wingMat, accentMat]) GAME.shade3D(mm, { form: true, rim: rimCol, rimStrength: 0.4 });
+      GAME.shade3D(gunmetal, { rim: 0x9fc4ff, rimStrength: 0.3 }); }
     const trimMat = new THREE.MeshBasicMaterial({ color: col });
     // Player colour must read true: the filmic tone mapping (great for
     // lasers and explosions) and the blue-tinted scene lights were washing
@@ -2934,7 +2833,7 @@ void main(){
     // --- Fuselage (flattened in depth so it reads as a sleek fighter) ---
     const hull = new THREE.Mesh(makeHullGeometry(), paintMat);
     hull.rotation.z = -Math.PI / 2;
-    hull.scale.z = 0.72;
+    hull.scale.z = 0.95;
     group.add(hull);
 
     // --- Dorsal armour plate facing the camera ---
@@ -2956,7 +2855,7 @@ void main(){
     group.add(canopyFrame);
 
     // --- Wings: painted base, gunmetal inset panel, glowing leading edge ---
-    const wingExtrude = { depth: 0.045, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.01, bevelSegments: 1 };
+    const wingExtrude = { depth: 0.05, bevelEnabled: true, bevelThickness: 0.022, bevelSize: 0.02, bevelSegments: 2 };
     for (const sign of [1, -1]) {
       const wing = new THREE.Mesh(new THREE.ExtrudeGeometry(makeWingShape(sign, false), wingExtrude), wingMat);
       wing.position.z = -0.03;
@@ -2974,7 +2873,13 @@ void main(){
       barrel.position.set(-0.22, 0.5 * sign, 0.02);
       const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), trimMat);
       muzzle.position.set(-0.06, 0.5 * sign, 0.02);
-      group.add(wing, inset, strip, barrel, muzzle);
+      // Dihedral: each wing angles up from the root, so the two wings catch the
+      // light differently and the ship reads as a solid shape, not a flat plate.
+      const wingPivot = new THREE.Group();
+      wingPivot.position.y = 0.07 * sign;
+      for (const part of [wing, inset, strip, barrel, muzzle]) { part.position.y -= 0.07 * sign; wingPivot.add(part); }
+      wingPivot.rotation.x = sign * 0.3;
+      group.add(wingPivot);
     }
 
     // --- Engine nacelles at the wing roots ---
@@ -3049,9 +2954,17 @@ void main(){
     group.add(flair);
     GAME.Gfx.onChange((mode) => { flair.visible = mode !== "classic"; });
 
+    // 3/4 view: the whole hull is tipped back a little so you see its top and
+    // its near side instead of a flat plan view. Lives in an inner group, so
+    // the banking / dodge rotations on the outer mesh work exactly as before.
+    const tilt = new THREE.Group();
+    for (const ch of group.children.slice()) if (ch !== glowSprite) tilt.add(ch);
+    tilt.rotation.x = -GAME.CONFIG.shipTilt;
+    group.add(tilt);
+
     group.scale.setScalar(GAME.CONFIG.shipVisualScale);
     return {
-      mesh: group,
+      mesh: group, tilt,
       glowSprite,
       materials: [paintMat, wingMat],
       flames: [mainFlame, flameTop, flameBottom],
@@ -5279,7 +5192,7 @@ void main(){
       player.dodgeTimer = CONFIG.dodgeDuration;
       player.dodgeCooldown = CONFIG.dodgeCooldown;
       player.dodgeSign = dyh >= 0 ? 1 : -1;
-      player.dodgeJets = 0;
+      player.dodgeJets = 0; player.dodgeBend = 0;
       GAME.Enemies.shakeBees(player, 2);      // a roll throws off up to two swarm bugs
       GAME.Effects.spark(player.obj.mesh.position.clone(), player.color);
       GAME.Audio.dodge();
@@ -5290,6 +5203,21 @@ void main(){
       // Smooth glide along the dodge direction; the speed curve always adds up
       // to dodgeDistance, whatever you were doing before.
       const dsp = CONFIG.dodgeDistance * Math.PI / (2 * CONFIG.dodgeDuration) * Math.sin(Math.PI * t);
+      // Partial steering: holding a direction bends the path toward it a little,
+      // so you can nudge where you land without losing the committed dodge.
+      const si = GAME.Input.getMovement(player.source);
+      if (Math.hypot(si.x, si.y) > 0.35) {
+        const cur = Math.atan2(player.dodgeDir.y, player.dodgeDir.x), want = Math.atan2(si.y, si.x);
+        let diff = want - cur;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        const room = CONFIG.dodgeSteer - Math.abs(player.dodgeBend || 0);
+        const step = THREE.MathUtils.clamp(diff, -1, 1) * Math.min(room, (CONFIG.dodgeSteer / CONFIG.dodgeDuration) * 1.6 * dt);
+        if (room > 0 && Math.abs(diff) < Math.PI * 0.75) {
+          player.dodgeBend = (player.dodgeBend || 0) + Math.abs(step);
+          player.dodgeDir = { x: Math.cos(cur + step), y: Math.sin(cur + step) };
+        }
+      }
       player.velocity.set(player.dodgeDir.x * dsp, player.dodgeDir.y * dsp);
       applyDodgeLoop(player, t);
       if (player.dodgeTimer <= 0) {
@@ -5306,7 +5234,7 @@ void main(){
       const input = GAME.Input.getMovement(player.source);
       const eng = 1 + CONFIG.engineSpeedPerLevel * player.upg.engine;
       if (player.dodgeTimer <= 0) {
-        // (steering is locked out mid-dodge so the dodge ends where you aimed it)
+        // (mid-dodge, steering only bends the dodge path a little — see above)
         player.velocity.x += input.x * CONFIG.shipAcceleration * speedMul * eng * dt;
         player.velocity.y += input.y * CONFIG.shipAcceleration * speedMul * eng * dt;
         player.velocity.multiplyScalar(Math.max(0, 1 - CONFIG.shipDrag * dt));
@@ -5907,6 +5835,7 @@ void main(){
       bumpMap: scaleTexture, bumpScale: 0.004, envMapIntensity: 1.2,
       emissive: 0xffffff, emissiveIntensity: 0, // used for the white hit-flash
     });
+    GAME.shade3D(bodyMat, { rim: 0xb9a0ff, rimStrength: 0.5 });
     const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1230, metalness: 0.7, roughness: 0.35 });
     const lightMat = new THREE.MeshBasicMaterial({ color: 0x6fe8ff });
     const accentMat = new THREE.MeshBasicMaterial({ color: accentColor });
@@ -5984,6 +5913,7 @@ void main(){
       bumpMap: scaleTexture, bumpScale: 0.006, envMapIntensity: 1.1,
       emissive: 0xffffff, emissiveIntensity: 0,
     });
+    GAME.shade3D(hullMat, { rim: 0xb9a0ff, rimStrength: 0.5 });
     const darkMat = new THREE.MeshStandardMaterial({ color: 0x150f26, metalness: 0.75, roughness: 0.35 });
     const lightMat = new THREE.MeshBasicMaterial({ color: 0x6fe8ff });
     const coreMat = new THREE.MeshBasicMaterial({ color: 0xff2a10 });
@@ -6197,8 +6127,9 @@ void main(){
     for (const e of enemies) if (e.parent === b && e.health > 0) { e.health = 0; e.noScore = true; }
   }
 
-  const stingerGeo = new THREE.ConeGeometry(0.06, 0.6, 8); stingerGeo.rotateZ(-Math.PI / 2);
-  const stingerMat = new THREE.MeshBasicMaterial({ color: 0xffe45a });
+  // Wasp shot: a ball of wax that bursts (about 3 ships wide) where it was aimed, or on the first ship it hits.
+  const stingerGeo = new THREE.IcosahedronGeometry(0.15, 1);
+  const stingerMat = new THREE.MeshBasicMaterial({ color: 0xf2b53a });
   let stingerGlowMat = null;
   function fireEnemyBullet(x, y, dx, dy, speed, opts) {
     const stinger = opts && opts.stinger;
@@ -6211,7 +6142,7 @@ void main(){
       if (!stingerGlowMat) { stingerGlowMat = enemyGlowMat.clone(); stingerGlowMat.color.setHex(0xffc21a); }
       mesh.rotation.z = Math.atan2(ddy, ddx);
       glow = new THREE.Sprite(stingerGlowMat);
-      glow.scale.set(0.7, 0.7, 1);
+      glow.scale.set(0.95, 0.95, 1);
     } else {
       glow = new THREE.Sprite(enemyGlowMat);
       glow.scale.set(0.5, 0.5, 1);
@@ -6219,7 +6150,21 @@ void main(){
     mesh.add(glow);
     GAME.scene.add(mesh);
     const sp = speed || CONFIG.enemyBulletSpeed;
-    enemyBullets.push({ mesh, life: 4.0, vx: (ddx / l) * sp, vy: (ddy / l) * sp });
+    enemyBullets.push({ mesh, life: 4.0, vx: (ddx / l) * sp, vy: (ddy / l) * sp, wax: !!stinger, range: stinger && opts.range ? opts.range : Infinity });
+  }
+  // Wax ball breaks apart: a small blast that costs 1 bar to any ship inside it.
+  function burstWax(pos, skip) {
+    GAME.Effects.explode(pos.clone(), 0xffb52a, 0.75);
+    for (let k = 0; k < 7; k++) {
+      const a = (k / 7) * Math.PI * 2 + Math.random() * 0.5, r = CONFIG.waxBlastRadius * (0.45 + Math.random() * 0.5);
+      GAME.Effects.spark(new THREE.Vector3(pos.x + Math.cos(a) * r, pos.y + Math.sin(a) * r, 0), 0xffd76a);
+    }
+    GAME.Audio.explosion(false);
+    for (const pl of alivePlayers()) {
+      if (pl === skip || GAME.Players.isInvulnerable(pl)) continue;
+      const pp = pl.obj.mesh.position;
+      if (Math.hypot(pp.x - pos.x, pp.y - pos.y) < CONFIG.waxBlastRadius) GAME.Players.takeDamage(pl, 1);
+    }
   }
 
   function findThreatTarget(enemy) {
@@ -6388,11 +6333,11 @@ void main(){
   const tmpV = new THREE.Vector3();
 
   function alienHullMat(color) {
-    return new THREE.MeshPhysicalMaterial({
+    return GAME.shade3D(new THREE.MeshPhysicalMaterial({
       color, metalness: 0.55, roughness: 0.25, clearcoat: 1.0, clearcoatRoughness: 0.2,
       bumpMap: scaleTexture, bumpScale: 0.006, envMapIntensity: 1.1,
       emissive: 0xffffff, emissiveIntensity: 0,
-    });
+    }), { rim: 0xb9a0ff, rimStrength: 0.5 });
   }
   function glowSprite(hex, scale, opacity) {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -6951,11 +6896,15 @@ void main(){
     if (t) { wx = t.obj.mesh.position.x - m.position.x; wy = t.obj.mesh.position.y - m.position.y; }
     const d = Math.hypot(wx, wy) || 1;
     // Chase with a weaving flight path; slightly slower than a ship at full speed.
-    const weave = Math.sin(e.age * 7 + e.phaseB) * 1.6;
-    const tx = (wx / d) * CONFIG.beeSpeed - (wy / d) * weave, ty = (wy / d) * CONFIG.beeSpeed + (wx / d) * weave;
-    const k = Math.min(1, dt * 4);
+    // Floaty, bee-like flight: it surges and hangs, swings side to side in lazy
+    // loops and bobs up and down — never a straight line at you.
+    const weave = Math.sin(e.age * 4.3 + e.phaseB) * 2.6 + Math.sin(e.age * 9.1 + e.phaseB * 2) * 1.0;
+    const surge = CONFIG.beeSpeed * (0.78 + 0.5 * Math.sin(e.age * 2.7 + e.phaseB * 3));
+    const near = Math.min(1, d / 1.6);                      // the wobble calms down right at the ship so it can land
+    const tx = (wx / d) * surge - (wy / d) * weave * near, ty = (wy / d) * surge + (wx / d) * weave * near;
+    const k = Math.min(1, dt * 2.6);
     e.vel.x += (tx - e.vel.x) * k; e.vel.y += (ty - e.vel.y) * k;
-    m.position.x += e.vel.x * dt; m.position.y += e.vel.y * dt;
+    m.position.x += e.vel.x * dt; m.position.y += (e.vel.y + Math.sin(e.age * 6.2 + e.phaseB) * 1.1 * near) * dt;
     m.rotation.z = Math.atan2(e.vel.y, e.vel.x) + Math.PI;
     if (t && d < 0.42 && !GAME.Players.isInvulnerable(t)) {
       e.host = t;
@@ -6994,18 +6943,22 @@ void main(){
   }
 
   const WASP = {
-    name: "WASP", warning: "Fast — fires stingers and sends swarms that latch on. Dodge roll to shake them off", hpMul: 0.5,
+    name: "WASP", warning: "Fast — lobs wax balls that burst and sends swarms that latch on. Dodge roll to shake them off", hpMul: 0.5,
     build: buildWaspMesh, rotate: true,
     circles: [{ x: -0.42, y: 0, r: 0.26 }, { x: 0, y: 0, r: 0.32 }, { x: 0.78, y: 0, r: 0.34 }],
     init(b) {
       b.state = "MOVE"; b.vel = new THREE.Vector2(); b.timer = 0; b.queue = [];
-      b.line = makeWarnLine(b, 0xffd23a);
+      // Telegraph: a ring on the spot where the wax ball will burst (not a sight line).
+      b.line = new THREE.Mesh(new THREE.RingGeometry(CONFIG.waxBlastRadius * 0.84, CONFIG.waxBlastRadius, 40),
+        new THREE.MeshBasicMaterial({ color: 0xffc21a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      b.line.visible = false; GAME.scene.add(b.line); b.extras.push(b.line);
+      b.charge = glowSprite(0xffc21a, 0.1, 0.9); b.charge.position.set(1.5, 0, 0.1); b.obj.mesh.add(b.charge); b.charge.visible = false;
       const bounds = GAME.getPlayBounds();
       b.goal = { x: bounds.maxX - 2.5, y: 0 };
       b.lastAction = ""; b.firstSwarm = true;
       b.swarmMarks = [0.75, 0.5, 0.25];        // sends extra swarms as it gets hurt
     },
-    onStun(b) { b.line.visible = false; b.state = "MOVE"; b.queue = []; },
+    onStun(b) { b.line.visible = false; b.charge.visible = false; b.state = "MOVE"; b.queue = []; },
     pickGoal(b, avoid) {
       const bounds = GAME.getPlayBounds();
       let g = null;
@@ -7023,23 +6976,30 @@ void main(){
       const players = alivePlayers();
       if (!players.length) return;
       const p = b.obj.mesh.position;
-      const n = Math.max(0, Math.min(CONFIG.beeMax - WASP.beesAlive(b), 2 + players.length + (extra || 0)));
+      // The more hurt the Wasp is, the bigger every swarm gets.
+      const hurt = 1 - Math.max(0, b.health / b.maxHealth);
+      const cap = Math.min(CONFIG.beeMax, 5 + 2 * players.length + Math.round(hurt * 3));
+      const n = Math.max(0, Math.min(cap - WASP.beesAlive(b), 2 + players.length + Math.round(hurt * 5) + (extra || 0)));
       for (let i = 0; i < n; i++) spawnBee(p.x + 0.5 + Math.random() * 0.6, p.y + (Math.random() - 0.5) * 0.8, b, players[i % players.length]);
       if (n) { GAME.Effects.spark(p.clone(), 0xffd23a); GAME.Audio.mineArm(); }
     },
     nextAction(b) {
       const enraged = b.health < b.maxHealth * 0.5;
       if (b.swarmMarks.length && b.health < b.maxHealth * b.swarmMarks[0]) {
-        b.swarmMarks.shift(); b.state = "SWARM"; b.timer = 0.7; b.swarmExtra = 2; b.lastAction = "swarm";
+        b.swarmMarks.shift(); b.state = "SWARM"; b.timer = 0.7; b.swarmExtra = 1; b.lastAction = "swarm";
         return;
       }
-      let a = ["sting", "sting", "sting", "dart", "swarm"][Math.floor(Math.random() * 5)];
+      let a = ["sting", "sting", "dart", "swarm", "swarm"][Math.floor(Math.random() * 5)];
       if (b.firstSwarm) { a = "swarm"; b.firstSwarm = false; }
-      if (a === "swarm" && (b.lastAction === "swarm" || WASP.beesAlive(b) >= 5)) a = "sting";
+      // Swarms come more often than before, but never back to back and not while plenty of bugs are still out.
+      b.sinceSwarm = (b.sinceSwarm || 0) + 1;
+      if (b.sinceSwarm >= 4) a = "swarm";
+      if (a === "swarm" && (b.lastAction === "swarm" || b.sinceSwarm < 2 || WASP.beesAlive(b) >= 3 + alivePlayers().length)) a = "sting";
+      if (a === "swarm") b.sinceSwarm = 0;
       if (a === "dart" && b.lastAction === "dart") a = "sting";
       b.lastAction = a;
       if (a === "dart") { b.goal = WASP.pickGoal(b); b.state = "MOVE"; }
-      else if (a === "swarm") { b.state = "SWARM"; b.timer = 0.7; b.swarmExtra = enraged ? 1 : 0; }
+      else if (a === "swarm") { b.state = "SWARM"; b.timer = 0.7; b.swarmExtra = 0; }
       else {
         // Stinger run: blink to three spots in a row, firing a stinger from each.
         b.queue = []; let prev = b.obj.mesh.position;
@@ -7067,7 +7027,7 @@ void main(){
         p.x += b.vel.x * dt; p.y += b.vel.y * dt;
         if (sp > 2) { faceDx = b.vel.x; faceDy = b.vel.y; }
         if (Math.hypot(b.goal.x - p.x, b.goal.y - p.y) < 0.35 && sp < 4) {
-          if (fast) { b.state = "AIM"; b.timer = enraged ? 0.26 : 0.36; b.dir = { x: -1, y: 0 }; }
+          if (fast) { b.state = "AIM"; b.timer = enraged ? 0.3 : 0.42; b.dir = { x: -1, y: 0 }; b.aimAt = null; }
           else { b.state = "PAUSE"; b.timer = enraged ? 0.18 : 0.35; }
         }
       } else if (b.state === "AIM") {
@@ -7075,14 +7035,18 @@ void main(){
         b.vel.multiplyScalar(Math.max(0, 1 - 10 * dt));
         p.x += b.vel.x * dt; p.y += b.vel.y * dt;
         const t = nearestAlivePlayer(p);
-        if (t) { const dx = t.obj.mesh.position.x - p.x, dy = t.obj.mesh.position.y - p.y, l = Math.hypot(dx, dy) || 1; b.dir = { x: dx / l, y: dy / l }; }
+        // The mark follows the target, then locks for the last moment before the shot.
+        if (t && (b.timer > 0.2 || !b.aimAt)) b.aimAt = { x: t.obj.mesh.position.x, y: t.obj.mesh.position.y };
+        if (!b.aimAt) b.aimAt = { x: p.x - 6, y: p.y };
+        { const dx = b.aimAt.x - p.x, dy = b.aimAt.y - p.y, l = Math.hypot(dx, dy) || 1; b.dir = { x: dx / l, y: dy / l }; b.aimDist = l; }
         faceDx = b.dir.x; faceDy = b.dir.y;
-        placeLine(b.line, p.x, p.y, p.x + b.dir.x * 40, p.y + b.dir.y * 40, 0.16);
-        b.line.material.opacity = 0.25 + 0.3 * (Math.sin(b.age * 40) > 0 ? 1 : 0);
+        b.line.position.set(b.aimAt.x, b.aimAt.y, -0.1); b.line.visible = true;
+        b.line.material.opacity = 0.55 + 0.4 * (Math.sin(b.age * 40) > 0 ? 1 : 0);
+        b.charge.visible = true; b.charge.scale.setScalar(0.3 + 1.1 * (1 - Math.max(0, b.timer) / (enraged ? 0.3 : 0.42)));
         b.timer -= dt;
         if (b.timer <= 0) {
-          b.line.visible = false;
-          fireEnemyBullet(p.x, p.y, b.dir.x, b.dir.y, CONFIG.stingerSpeed, { stinger: true });
+          b.line.visible = false; b.charge.visible = false; b.aimAt = null;
+          fireEnemyBullet(p.x, p.y, b.dir.x, b.dir.y, CONFIG.stingerSpeed, { stinger: true, range: Math.max(0.6, b.aimDist - 0.3) });
           GAME.Audio.enemyShot(); GAME.Audio.dodge();
           if (b.queue.length) { b.goal = b.queue.shift(); b.state = "STING_MOVE"; }
           else { b.state = "PAUSE"; b.timer = enraged ? 0.35 : 0.6; }
@@ -7097,6 +7061,11 @@ void main(){
         p.x += b.vel.x * dt; p.y += b.vel.y * dt;
         b.timer -= dt;
         if (b.timer <= 0) WASP.nextAction(b);
+      }
+      // Bee-like hover: it never sits still — bobs and drifts in a lazy figure-eight.
+      if (b.state !== "STING_MOVE") {
+        p.y += Math.sin(b.age * 5.2) * 1.5 * dt; p.x += Math.cos(b.age * 2.6) * 0.8 * dt;
+        m.position.z = 0;
       }
       if (faceDx === -1 && faceDy === 0) {
         const t = nearestAlivePlayer(p);
@@ -7977,6 +7946,11 @@ void main(){
       b.mesh.position.x += b.vx * dt;
       b.mesh.position.y += b.vy * dt;
       b.life -= dt;
+      if (b.wax) {
+        b.mesh.rotation.z += dt * 9; b.mesh.rotation.x += dt * 6;
+        b.range -= Math.hypot(b.vx, b.vy) * dt;
+        if (b.range <= 0) { burstWax(b.mesh.position); GAME.scene.remove(b.mesh); enemyBullets.splice(i, 1); continue; }
+      }
       const out = b.mesh.position.x < bounds.minX - 2 || b.mesh.position.x > bounds.maxX + 6
         || b.mesh.position.y < bounds.minY - 2 || b.mesh.position.y > bounds.maxY + 2;
       if (b.life <= 0 || out) {
@@ -8128,7 +8102,8 @@ void main(){
             GAME.Audio.impact();
           } else if (!GAME.Players.tryFrontShield(p, bp)) {
             GAME.Players.takeDamage(p, 1);
-          }
+            if (bullet.wax) burstWax(bp, p);
+          } else if (bullet.wax) burstWax(bp, p);
           break;
         }
       }
@@ -11780,6 +11755,7 @@ void main(){
   const ships = CONFIG.playerColors.map((color, i) => {
     const obj = GAME.buildShip(color);
     obj.mesh.rotation.x = -Math.PI / 2;            // top of the ship faces up
+    obj.tilt.rotation.x = 0;
     const g = new THREE.Group();
     g.add(obj.mesh);
     g.scale.setScalar(2.0);
@@ -12506,10 +12482,6 @@ void main(){
     voiceBtn.classList.toggle("off", !GAME.Voice.isOn());
   }
   musicBtn.addEventListener("click", () => { GAME.Music.setEnabled(!GAME.Music.isOn()); refreshSoundBtns(); });
-  // Graphics: Classic (the original look) → Enhanced Low → Medium → High. Remembered between visits.
-  const gfxBtn = document.getElementById("btn-gfx");
-  gfxBtn.addEventListener("click", () => { GAME.Gfx.cycle(); });
-  GAME.Gfx.onChange(() => { gfxBtn.textContent = "Graphics: " + GAME.Gfx.label(); });
   voiceBtn.addEventListener("click", () => { GAME.Voice.setOn(!GAME.Voice.isOn()); refreshSoundBtns(); });
   refreshSoundBtns();
 
