@@ -3939,6 +3939,8 @@ GAME.CONFIG = {
     // "crushed": "data:audio/mpeg;base64,....",
     // Music files live next to the game, in the audio folder, so the page
     // itself stays small and the tracks keep their full quality.
+    // Title screen: the intro song, restarted from the top each time you land on the menu.
+    "musicTitle": "audio/title.mp3",
     // Gameplay: "Neon Circuitry" (stage 1) and "Neon Circuitry Level 2" (stage 2), then alternating.
     "musicLevel": "audio/level.mp3",
     "musicLevel2": "audio/level2.mp3",
@@ -4001,7 +4003,7 @@ GAME.CONFIG = {
     return h;
   }
   // Loudness matching so every song sits at the same level (1 = as recorded).
-  const SOUND_GAINS = { musicLevel: 0.86, musicLevel2: 0.82, musicBoss1: 1.0, musicBoss2: 0.82, musicWasp: 0.86 };
+  const SOUND_GAINS = { musicTitle: 0.55, musicLevel: 0.86, musicLevel2: 0.82, musicBoss1: 1.0, musicBoss2: 0.82, musicWasp: 0.86 };
   // preload(list) warms up those slots; preload() warms up everything.
   function preload(list) { return Promise.all((list || Object.keys(SOUND_FILES)).filter((k) => SOUND_FILES[k]).map(load)); }
   GAME.Sounds = { has, play, gainOf: (k) => SOUND_GAINS[k] || 1, preload };
@@ -12188,7 +12190,7 @@ GAME.CONFIG = {
       // the background. If none of them load (opened straight off the disk),
       // re-check so the game's own music takes over.
       preloaded = true;
-      GAME.Sounds.preload(LEVEL_SLOTS).then(() => { if (!levelSlot(stageOf)) mode = "?"; });
+      GAME.Sounds.preload(["musicTitle"].concat(LEVEL_SLOTS)).then(() => { if (!levelSlot(stageOf)) mode = "?"; });
       setTimeout(() => GAME.Sounds.preload(), 15000);
     }
     stageKey = [0, 3, -2, 5, 2][((stage || 1) - 1) % 5];
